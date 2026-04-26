@@ -6,3 +6,7 @@ statsmodels
 matplotlib
 seaborn
 openpyxl
+streamlit
+requests
+xgboost
+shap
