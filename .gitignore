@@ -1,0 +1,21 @@
+.DS_Store
+.venv/
+__pycache__/
+*.pyc
+.history/
+
+# Runtime outputs
+outputs/
+outputs_advanced/
+outputs_multiomics/
+outputs_prot/
+outputs_strict/
+outputs_web/
+
+# Local app artifacts
+*.app/
+*.log
+
+# Uploaded/runtime data
+metab.xlsx
+prot.xlsx
