@@ -124,6 +124,8 @@ run_name = st.text_input("结果子文件夹名（可选，自定义本次任务
 zip_filename = st.text_input("结果压缩包文件名（可选）", value=f"{run_name}_分析结果.zip")
 run_button = st.button("开始自动分析", type="primary", use_container_width=True)
 
+st.warning("规则提示：当上传的 Excel 包含多个分表时，系统只读取第一个分表。")
+
 mode_title = ""
 mode_desc = ""
 planned_modules = []
@@ -189,6 +191,7 @@ st.markdown("### 流程说明")
 st.markdown(
     "- 自动数据规范化与样本表头识别\n"
     "- 支持只上传单组学（蛋白或代谢）也可分析\n"
+    "- Excel 多分表文件默认只读取第一个分表\n"
     "- 双组学时自动执行非线性整合建模（XGBoost + SHAP）\n"
     "- 自动汇总报告、图像预览与结果打包"
 )
