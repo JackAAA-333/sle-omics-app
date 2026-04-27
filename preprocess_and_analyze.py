@@ -287,9 +287,9 @@ def main():
     with np.errstate(invalid="ignore", divide="ignore"):
         log2_fc.loc[pos_mask] = np.log2(fc.loc[pos_mask].to_numpy(dtype=float))
     sns.scatterplot(x=log2_fc, y=merged['neg_log10_p'], hue=(merged['fdr']<0.05), legend=False, s=10)
-    plt.xlabel('log2(Fold Change)')
-    plt.ylabel('-log10(p)')
-    plt.title('Volcano')
+    plt.xlabel('log2(倍数变化) / log2(Fold Change)')
+    plt.ylabel('-log10(p值) / -log10(p-value)')
+    plt.title('火山图 / Volcano')
     plt.tight_layout()
     plt.savefig(os.path.join(OUTDIR,'volcano.png'), dpi=200)
     plt.close()

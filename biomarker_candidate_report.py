@@ -57,6 +57,24 @@ warnings.filterwarnings("ignore", message=r"Glyph .* missing from font\(s\).*", 
 warnings.filterwarnings("ignore", message=r"Attempting to set identical low and high ylims.*", category=UserWarning)
 
 
+def _configure_plot_fonts():
+    # Cross-platform fallback list to render Chinese titles/labels correctly.
+    plt.rcParams["font.sans-serif"] = [
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS",
+        "DejaVu Sans",
+    ]
+    plt.rcParams["axes.unicode_minus"] = False
+
+
+_configure_plot_fonts()
+
+
 def _safe_read_table(path: Path, sep: str = "\t", index_col=None):
     if not path.exists():
         return None
@@ -91,6 +109,15 @@ def _safe_read_matrix(path: Path):
         return None
 
 
+def _unique_mapper_series(series: pd.Series | None) -> pd.Series:
+    if series is None or not isinstance(series, pd.Series):
+        return pd.Series(dtype=float)
+    s = series.copy()
+    if not s.index.is_unique:
+        s = s[~s.index.duplicated(keep="first")]
+    return s
+
+
 def _norm01(series: pd.Series) -> pd.Series:
     if series is None or len(series) == 0:
         return pd.Series(dtype=float)
@@ -118,9 +145,12 @@ def _prepare_candidates():
         p["modality"] = "protein"
         p["shap_value"] = pd.to_numeric(p.get("mean_abs_shap", np.nan), errors="coerce")
         if prot_diff is not None and not prot_diff.empty:
-            p["pvalue"] = p["feature_id"].map(prot_diff.get("pvalue", pd.Series(dtype=float)))
-            p["fdr"] = p["feature_id"].map(prot_diff.get("fdr_bh", pd.Series(dtype=float)))
-            p["auc"] = p["feature_id"].map(prot_diff.get("auc", pd.Series(dtype=float)))
+            pvalue_map = _unique_mapper_series(prot_diff.get("pvalue", pd.Series(dtype=float)))
+            fdr_map = _unique_mapper_series(prot_diff.get("fdr_bh", pd.Series(dtype=float)))
+            auc_map = _unique_mapper_series(prot_diff.get("auc", pd.Series(dtype=float)))
+            p["pvalue"] = p["feature_id"].map(pvalue_map)
+            p["fdr"] = p["feature_id"].map(fdr_map)
+            p["auc"] = p["feature_id"].map(auc_map)
         rows.append(p[["modality", "feature_id", "marker", "shap_value", "pvalue", "fdr", "auc"]])
 
     met_shap = _read_series(Path("outputs_advanced/xgb_shap_feature_importance.tsv"), sep="\t")
@@ -144,12 +174,17 @@ def _prepare_candidates():
         m["marker"] = m["feature_id"].map(met_name_map).fillna(m["feature_id"])
         m["modality"] = "metabolite"
         if met_diff_basic is not None and not met_diff_basic.empty:
-            m["pvalue"] = m["feature_id"].map(met_diff_basic.get("pvalue", pd.Series(dtype=float)))
-            m["fdr"] = m["feature_id"].map(met_diff_basic.get("fdr", pd.Series(dtype=float)))
-            m["auc"] = m["feature_id"].map(met_diff_basic.get("AUC", pd.Series(dtype=float)))
-            m["fold_change"] = m["feature_id"].map(met_diff_basic.get("fold_change", pd.Series(dtype=float)))
+            pvalue_map = _unique_mapper_series(met_diff_basic.get("pvalue", pd.Series(dtype=float)))
+            fdr_map = _unique_mapper_series(met_diff_basic.get("fdr", pd.Series(dtype=float)))
+            auc_map = _unique_mapper_series(met_diff_basic.get("AUC", pd.Series(dtype=float)))
+            fc_map = _unique_mapper_series(met_diff_basic.get("fold_change", pd.Series(dtype=float)))
+            m["pvalue"] = m["feature_id"].map(pvalue_map)
+            m["fdr"] = m["feature_id"].map(fdr_map)
+            m["auc"] = m["feature_id"].map(auc_map)
+            m["fold_change"] = m["feature_id"].map(fc_map)
         if met_diff_adv is not None and not met_diff_adv.empty:
-            adv_fdr = m["feature_id"].map(met_diff_adv.get("fdr_bh", pd.Series(dtype=float)))
+            adv_fdr_map = _unique_mapper_series(met_diff_adv.get("fdr_bh", pd.Series(dtype=float)))
+            adv_fdr = m["feature_id"].map(adv_fdr_map)
             m["fdr"] = pd.to_numeric(m.get("fdr"), errors="coerce").combine_first(pd.to_numeric(adv_fdr, errors="coerce"))
         rows.append(m[["modality", "feature_id", "marker", "shap_value", "pvalue", "fdr", "auc", "fold_change"]])
 
@@ -324,24 +359,24 @@ def _plot_panel(panel_df: pd.DataFrame):
     plt.barh(y, panel_df["total_score"], color="#2a7fff")
     plt.yticks(y, names)
     plt.gca().invert_yaxis()
-    plt.xlabel("综合候选评分")
-    plt.title("联合试剂盒候选分子综合评分")
+    plt.xlabel("综合候选评分 / Composite Candidate Score")
+    plt.title("联合试剂盒候选分子综合评分 / Composite Candidate Score")
     plt.tight_layout()
     plt.savefig(FIG_DIR / "panel_total_score.png", dpi=200)
     plt.close()
 
     # 证据拆解堆叠图
     plt.figure(figsize=(10, 6))
-    plt.barh(y, panel_df["pred_component"], label="模型贡献(45%)", color="#1f77b4")
-    plt.barh(y, panel_df["effect_component"], left=panel_df["pred_component"], label="统计/判别(20%)", color="#ff7f0e")
+    plt.barh(y, panel_df["pred_component"], label="模型贡献(45%) / Predictive Contribution (45%)", color="#1f77b4")
+    plt.barh(y, panel_df["effect_component"], left=panel_df["pred_component"], label="统计/判别(20%) / Statistical & Discriminative (20%)", color="#ff7f0e")
     left2 = panel_df["pred_component"] + panel_df["effect_component"]
-    plt.barh(y, panel_df["lit_component"], left=left2, label="文献支持(15%)", color="#2ca02c")
+    plt.barh(y, panel_df["lit_component"], left=left2, label="文献支持(15%) / Literature Support (15%)", color="#2ca02c")
     left3 = left2 + panel_df["lit_component"]
-    plt.barh(y, panel_df["causal_component"], left=left3, label="因果证据(20%)", color="#d62728")
+    plt.barh(y, panel_df["causal_component"], left=left3, label="因果证据(20%) / Causal Evidence (20%)", color="#d62728")
     plt.yticks(y, names)
     plt.gca().invert_yaxis()
-    plt.xlabel("分项证据得分(0-1)")
-    plt.title("候选分子证据分项构成")
+    plt.xlabel("分项证据得分(0-1) / Component Evidence Score (0-1)")
+    plt.title("候选分子证据分项构成 / Evidence Component Breakdown")
     plt.legend(loc="lower right")
     plt.tight_layout()
     plt.savefig(FIG_DIR / "panel_evidence_breakdown.png", dpi=200)
@@ -388,9 +423,9 @@ def _plot_enhanced_volcano(all_df: pd.DataFrame):
         idx = r.name
         plt.text(float(x.loc[idx]), float(-np.log10(max(float(r.get("pvalue", 1)), 1e-300))), str(r["marker"]), fontsize=8)
     plt.axvline(0, color="grey", linestyle="--", linewidth=0.8)
-    plt.xlabel("效应轴（DML theta 优先，缺失时自动回退）")
-    plt.ylabel("-log10(p-value)")
-    plt.title("增强火山图：统计显著性 × 因果效应")
+    plt.xlabel("效应轴（DML theta 优先，缺失时自动回退） / Effect Axis (DML theta first, with fallback)")
+    plt.ylabel("-log10(p-value) / -log10(p-value)")
+    plt.title("增强火山图：统计显著性 × 因果效应 / Enhanced Volcano: Significance × Causal Effect")
     plt.tight_layout()
     plt.savefig(FIG_DIR / "enhanced_volcano_causal.png", dpi=220)
     plt.close()
@@ -446,11 +481,12 @@ def _evaluate_panel_metrics(panel_df: pd.DataFrame, prefix: str):
     f1_val = float(f1_score(y.values, y_pred))
 
     plt.figure(figsize=(6, 6))
-    plt.plot(fpr, tpr, color="#2a7fff", label=f"AUC={auc_val:.3f}")
+    plt.plot(fpr, tpr, color="#2a7fff", label=f"AUC / 曲线下面积 = {auc_val:.3f}")
     plt.plot([0, 1], [0, 1], "k--", linewidth=0.8)
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title(f"ROC - {prefix} panel")
+    plt.xlabel("假阳性率 / False Positive Rate")
+    plt.ylabel("真阳性率 / True Positive Rate")
+    zh_prefix = "推荐" if prefix == "recommended" else "严格" if prefix == "strict" else prefix
+    plt.title(f"{zh_prefix}面板 ROC / ROC - {prefix} panel")
     plt.legend(loc="lower right")
     plt.tight_layout()
     plt.savefig(FIG_DIR / f"roc_{prefix}_panel.png", dpi=220)
@@ -489,7 +525,8 @@ def _plot_panel_heatmap(panel_df: pd.DataFrame, prefix: str):
         row_cluster=True,
         figsize=(10, 8),
     )
-    cg.fig.suptitle(f"Heatmap - {prefix} panel", y=1.02)
+    zh_prefix = "推荐" if prefix == "recommended" else "严格" if prefix == "strict" else prefix
+    cg.fig.suptitle(f"{zh_prefix}面板热图 / Heatmap - {prefix} panel", y=1.02)
     cg.fig.savefig(FIG_DIR / f"heatmap_{prefix}_panel.png", dpi=220, bbox_inches="tight")
     plt.close(cg.fig)
 

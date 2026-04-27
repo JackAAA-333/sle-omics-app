@@ -1,4 +1,5 @@
 import json
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -7,6 +8,24 @@ import pandas as pd
 OUT_ROOT = Path("outputs")
 OUT_MD = OUT_ROOT / "report.md"
 FIG_DIR = OUT_ROOT / "report_figs"
+
+
+def _configure_plot_fonts():
+    plt.rcParams["font.sans-serif"] = [
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "WenQuanYi Zen Hei",
+        "Arial Unicode MS",
+        "DejaVu Sans",
+    ]
+    plt.rcParams["axes.unicode_minus"] = False
+
+
+_configure_plot_fonts()
+warnings.filterwarnings("ignore", message=r"Glyph .* missing from font\(s\).*", category=UserWarning)
 
 
 def _read_json(path: Path):
@@ -47,7 +66,7 @@ def _plot_top_shap(path: Path, title: str, out_png: Path, topk: int = 12):
     top = series.sort_values(ascending=False).head(topk).sort_values(ascending=True)
     plt.figure(figsize=(8, 5.5))
     plt.barh(top.index.astype(str), top.values, color="#2a7fff")
-    plt.xlabel("Mean |SHAP|")
+    plt.xlabel("平均 |SHAP| / Mean |SHAP|")
     plt.title(title)
     plt.tight_layout()
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -83,12 +102,12 @@ def main():
     img_prot_shap = FIG_DIR / "top_protein_shap.png"
     has_met_img = _plot_top_shap(
         Path("outputs_advanced/xgb_shap_feature_importance.tsv"),
-        "Top Metabolite Predictive Contributors",
+        "代谢组关键预测贡献因子 / Top Metabolite Predictive Contributors",
         img_met_shap,
     )
     has_prot_img = _plot_top_shap(
         Path("outputs_prot/xgb_shap_prot.tsv"),
-        "Top Protein Predictive Contributors",
+        "蛋白组关键预测贡献因子 / Top Protein Predictive Contributors",
         img_prot_shap,
     )
 
