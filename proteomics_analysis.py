@@ -25,6 +25,10 @@ def build_matrix(df):
     df.columns = [str(c) for c in df.columns]
     feat_col = df.columns[0]
     mat = df.set_index(feat_col)
+    # force all measurement columns to numeric; non-numeric tokens like 'LOD' -> NaN
+    mat = mat.apply(pd.to_numeric, errors='coerce')
+    # drop rows that are fully non-numeric after coercion
+    mat = mat.dropna(how='all')
     return mat
 
 def align_samples(mat):
