@@ -8,7 +8,15 @@ from pathlib import Path
 
 import pandas as pd
 
-OUTPUT_DIRS = ["outputs", "outputs_advanced", "outputs_prot", "outputs_multiomics", "outputs_literature"]
+OUTPUT_DIRS = [
+    "outputs",
+    "outputs_advanced",
+    "outputs_prot",
+    "outputs_multiomics",
+    "outputs_literature",
+    "outputs_causal",
+    "outputs_candidate",
+]
 LOGO_PATH = Path(
     "/Users/jacka/.cursor/projects/Users-jacka-Desktop-SLE/assets/__logo__-___-40948cae-d905-4025-b378-50bdd1b3110b.png"
 )
@@ -120,8 +128,9 @@ def _select_pipeline_scripts(has_protein: bool, has_metabolite: bool):
     if has_metabolite and has_protein:
         scripts.append("multiomics_integration.py")
     scripts.append("literature_meta_recent3y.py")
-    if has_metabolite:
-        scripts.append("generate_reports.py")
+    scripts.append("causal_inference_latest.py")
+    scripts.append("biomarker_candidate_report.py")
+    scripts.append("generate_reports.py")
     return scripts
 
 
@@ -130,6 +139,9 @@ def run_pipeline(
     metabolite_path: str | None = None,
     outdir: str = "outputs_web",
     run_name: str | None = None,
+    strict_profile: str = "标准",
+    strict_min_abs_dml: float | None = None,
+    strict_min_e_value: float | None = None,
 ):
     repo_root = Path(__file__).resolve().parent.parent
     has_protein = bool(protein_path)
@@ -159,6 +171,12 @@ def run_pipeline(
 
     for script in scripts:
         cmd = [sys.executable, script]
+        if script == "biomarker_candidate_report.py":
+            cmd.extend(["--strict-profile", str(strict_profile or "标准")])
+            if strict_min_abs_dml is not None:
+                cmd.extend(["--min-abs-dml", str(float(strict_min_abs_dml))])
+            if strict_min_e_value is not None:
+                cmd.extend(["--min-e-value", str(float(strict_min_e_value))])
         yield f"[RUN ] {' '.join(cmd)}\n"
         proc = subprocess.Popen(
             cmd,

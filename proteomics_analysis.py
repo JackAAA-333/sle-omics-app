@@ -72,6 +72,22 @@ def build_gene_symbol_map(df):
         return {}
     return dict(zip(sub[feat_col], sub[gene_col]))
 
+
+def export_gene_annotation_catalog(mat, gene_map):
+    rows = []
+    for pid in mat.index.astype(str):
+        gs = str(gene_map.get(pid, "")).strip()
+        rows.append(
+            {
+                "protein_id": pid,
+                "gene_symbol": gs,
+                "annotation_status": "annotated" if gs else "missing",
+            }
+        )
+    ann = pd.DataFrame(rows)
+    ann.to_csv(f"{OUT}/protein_gene_annotations.tsv", sep="\t", index=False)
+    return ann
+
 def align_samples(mat):
     if os.path.exists('outputs/sample_metadata.csv'):
         meta = pd.read_csv('outputs/sample_metadata.csv', index_col=0)
@@ -145,6 +161,15 @@ def differential(mat, meta):
     res.to_csv(f'{OUT}/differential_prot.tsv', sep='\t')
     return res
 
+
+def export_differential_annotated(res, gene_map):
+    ann = res.reset_index().rename(columns={"feature": "protein_id"})
+    ann["protein_id"] = ann["protein_id"].astype(str)
+    ann["gene_symbol"] = ann["protein_id"].map(lambda x: str(gene_map.get(x, "")).strip())
+    ann["annotation_status"] = ann["gene_symbol"].apply(lambda x: "annotated" if x else "missing")
+    ann.to_csv(f"{OUT}/differential_prot_annotated.tsv", sep="\t", index=False)
+    return ann
+
 def _sanitize_xgb_feature_name(name):
     s = str(name)
     s = re.sub(r'[\[\]<>]', '_', s)
@@ -199,11 +224,13 @@ def main():
     xls, main, df = read_prot()
     gene_map = build_gene_symbol_map(df)
     mat = build_matrix(df)
+    export_gene_annotation_catalog(mat, gene_map)
     mat2, meta = align_samples(mat)
     norm = qc_normalize(mat2)
     logm = preprocess(norm)
     logm.to_csv(f'{OUT}/filtered_prot_matrix.tsv', sep='\t')
     res = differential(logm, meta)
+    export_differential_annotated(res, gene_map)
     imp = xgb_shap(logm, meta, gene_map=gene_map)
     summary = {'n_features':int(logm.shape[0]), 'n_samples':int(logm.shape[1])}
     with open(f'{OUT}/summary.json','w') as f:

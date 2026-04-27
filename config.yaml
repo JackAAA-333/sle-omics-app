@@ -1,0 +1,31 @@
+project:
+  name: "全流程非线性自动组学分析"
+  org: "SLE 多组学联合分析项目组"
+
+causal_inference:
+  n_top_markers_per_modality: 30
+  n_pc: 10
+  min_samples_per_marker: 30
+  n_splits_dml: 5
+  n_bootstrap: 1000
+  rf_n_estimators: 500
+  seed: 42
+
+strict_threshold_presets:
+  loose:
+    label: "宽松"
+    min_abs_dml: 0.05
+    min_e_value: 1.5
+  standard:
+    label: "标准"
+    min_abs_dml: 0.08
+    min_e_value: 2.0
+  strict:
+    label: "严格"
+    min_abs_dml: 0.12
+    min_e_value: 3.0
+
+panel_evaluation:
+  cv_folds: 5
+  rf_n_estimators: 500
+  random_state: 42

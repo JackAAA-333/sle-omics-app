@@ -10,3 +10,4 @@ streamlit
 requests
 xgboost
 shap
+pyyaml

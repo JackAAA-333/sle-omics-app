@@ -5,6 +5,7 @@ import subprocess
 
 import streamlit as st
 import pandas as pd
+import yaml
 
 import run_pipeline
 
@@ -78,6 +79,29 @@ def is_directory_writable(path: Path) -> tuple[bool, str]:
         return False, str(exc)
 
 
+def load_threshold_presets():
+    defaults = {
+        "宽松": (0.05, 1.5),
+        "标准": (0.08, 2.0),
+        "严格": (0.12, 3.0),
+    }
+    cfg_path = Path(__file__).resolve().parent.parent / "config.yaml"
+    if not cfg_path.exists():
+        return defaults
+    try:
+        raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        preset_raw = raw.get("strict_threshold_presets", {}) or {}
+        mapped = defaults.copy()
+        for key, zh in [("loose", "宽松"), ("standard", "标准"), ("strict", "严格")]:
+            block = preset_raw.get(key, {}) or {}
+            d = block.get("min_abs_dml", mapped[zh][0])
+            e = block.get("min_e_value", mapped[zh][1])
+            mapped[zh] = (float(d), float(e))
+        return mapped
+    except Exception:
+        return defaults
+
+
 header_left, header_right = st.columns([1, 7])
 with header_left:
     if LOGO_PATH.exists():
@@ -122,6 +146,25 @@ else:
 default_run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 run_name = st.text_input("结果子文件夹名（可选，自定义本次任务文件夹）", value=default_run_name)
 zip_filename = st.text_input("结果压缩包文件名（可选）", value=f"{run_name}_分析结果.zip")
+
+st.markdown("### 因果阈值过滤配置（严格临床转化清单）")
+strict_profile = st.selectbox("阈值模板", ["宽松", "标准", "严格", "自定义"], index=1)
+profile_defaults = load_threshold_presets()
+if strict_profile == "自定义":
+    c1, c2 = st.columns(2)
+    std_dml, std_e = profile_defaults.get("标准", (0.08, 2.0))
+    with c1:
+        strict_min_abs_dml = st.number_input("最小 |DML| 阈值", min_value=0.0, value=float(std_dml), step=0.01, format="%.3f")
+    with c2:
+        strict_min_e_value = st.number_input("最小 E-value 阈值", min_value=1.0, value=float(std_e), step=0.1, format="%.3f")
+    strict_profile_backend = "auto"
+else:
+    dml_v, e_v = profile_defaults[strict_profile]
+    st.caption(f"当前模板阈值：|DML| >= {dml_v:.2f}，E-value >= {e_v:.1f}")
+    strict_min_abs_dml = None
+    strict_min_e_value = None
+    strict_profile_backend = strict_profile
+
 run_button = st.button("开始自动分析", type="primary", use_container_width=True)
 
 st.warning("规则提示：当上传的 Excel 包含多个分表时，系统只读取第一个分表。")
@@ -226,6 +269,9 @@ if run_button:
             saved_met,
             outdir=effective_outdir,
             run_name=effective_run_name,
+            strict_profile=strict_profile_backend,
+            strict_min_abs_dml=strict_min_abs_dml,
+            strict_min_e_value=strict_min_e_value,
         )
         try:
             while True:
@@ -254,6 +300,11 @@ if run_button:
                     artifacts_dir / "outputs" / "volcano.png",
                     artifacts_dir / "outputs" / "heatmap_top30.png",
                     artifacts_dir / "outputs" / "roc_top5.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "enhanced_volcano_causal.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "heatmap_recommended_panel.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "heatmap_strict_panel.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "roc_recommended_panel.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "roc_strict_panel.png",
                 ]
                 shown = 0
                 for img in image_candidates:
