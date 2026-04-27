@@ -1,6 +1,7 @@
 import zipfile
 from pathlib import Path
 from datetime import datetime
+import subprocess
 
 import streamlit as st
 
@@ -34,6 +35,23 @@ def make_zip(source_dir: Path, zip_path: Path):
 
 
 def pick_directory(initial_dir: str | None = None) -> str | None:
+    # Prefer native macOS dialog for better reliability in desktop app mode.
+    try:
+        script = 'POSIX path of (choose folder with prompt "请选择结果保存目录")'
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            selected = result.stdout.strip()
+            if selected:
+                return selected.rstrip("/")
+    except Exception:
+        pass
+
+    # Fallback to tkinter dialog.
     try:
         import tkinter as tk
         from tkinter import filedialog
