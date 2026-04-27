@@ -36,7 +36,7 @@ fi
 source "$VENV_DIR/bin/activate"
 python -m pip install --upgrade pip >>"$LOG_FILE" 2>&1
 
-if ! python -c "import streamlit, webview" >/dev/null 2>&1; then
+if ! python -c "import streamlit, webview, yaml" >/dev/null 2>&1; then
   pip install -r "$PROJECT_ROOT/requirements.txt" >>"$LOG_FILE" 2>&1
 fi
 
