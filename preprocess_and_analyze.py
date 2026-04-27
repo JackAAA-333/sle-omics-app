@@ -17,6 +17,11 @@ import seaborn as sns
 
 OUTDIR = 'outputs'
 os.makedirs(OUTDIR, exist_ok=True)
+warnings.filterwarnings(
+    "ignore",
+    message="invalid value encountered in cast",
+    category=RuntimeWarning,
+)
 
 
 def load_metab(path='metab.xlsx'):
@@ -125,7 +130,16 @@ def filter_features(mat, threshold=0.5):
     na_frac = mat.isna().mean(axis=1)
     zero_frac = (mat==0).mean(axis=1)
     keep = (na_frac <= threshold) & (zero_frac <= threshold)
-    return mat.loc[keep]
+    out = mat.loc[keep].copy()
+    out = out.replace([np.inf, -np.inf], np.nan)
+    return out
+
+
+def impute_for_modeling(mat):
+    out = mat.copy().replace([np.inf, -np.inf], np.nan)
+    row_median = out.median(axis=1)
+    out = out.T.fillna(row_median).T.fillna(0.0)
+    return out
 
 
 def differential_test(mat, sample_meta):
@@ -204,14 +218,16 @@ def main():
     # filter
     mat_filt = filter_features(mat_log, threshold=0.5)
     mat_filt.to_csv(os.path.join(OUTDIR,'filtered_matrix.tsv'), sep='\t')
+    mat_model = impute_for_modeling(mat_filt)
+    mat_model.to_csv(os.path.join(OUTDIR,'filtered_matrix_model_ready.tsv'), sep='\t')
 
     # differential
-    diff = differential_test(mat_filt, sample_meta)
+    diff = differential_test(mat_model, sample_meta)
     diff = diff.sort_values('fdr')
     diff.to_csv(os.path.join(OUTDIR,'differential_results.tsv'), sep='\t')
 
     # AUC per feature
-    aucs = compute_auc(mat_filt, sample_meta)
+    aucs = compute_auc(mat_model, sample_meta)
     aucs.to_csv(os.path.join(OUTDIR,'feature_auc.tsv'), sep='\t')
 
     # merge
@@ -221,11 +237,14 @@ def main():
     # multivariate modeling
     # prepare X,y
     common_samples = sample_meta[sample_meta['group'].isin(['SLE','HC'])].index.tolist()
-    X = mat_filt[common_samples].T
+    X = mat_model[common_samples].T
     y = sample_meta.loc[common_samples,'group'].map({'SLE':1,'HC':0}).astype(int)
 
     scaler = StandardScaler()
-    Xs = pd.DataFrame(scaler.fit_transform(X), index=X.index, columns=X.columns)
+    X = X.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="invalid value encountered in cast", category=RuntimeWarning)
+        Xs = pd.DataFrame(scaler.fit_transform(X), index=X.index, columns=X.columns)
 
     coef, rf_auc = multivariate_models(Xs, y)
     coef.to_csv(os.path.join(OUTDIR,'lasso_coefficients.tsv'), sep='\t')
