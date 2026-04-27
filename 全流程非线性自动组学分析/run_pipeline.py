@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-OUTPUT_DIRS = ["outputs", "outputs_advanced", "outputs_prot", "outputs_multiomics"]
+OUTPUT_DIRS = ["outputs", "outputs_advanced", "outputs_prot", "outputs_multiomics", "outputs_literature"]
 LOGO_PATH = Path(
     "/Users/jacka/.cursor/projects/Users-jacka-Desktop-SLE/assets/__logo__-___-40948cae-d905-4025-b378-50bdd1b3110b.png"
 )
@@ -119,6 +119,7 @@ def _select_pipeline_scripts(has_protein: bool, has_metabolite: bool):
         scripts.append("proteomics_analysis.py")
     if has_metabolite and has_protein:
         scripts.append("multiomics_integration.py")
+    scripts.append("literature_meta_recent3y.py")
     if has_metabolite:
         scripts.append("generate_reports.py")
     return scripts

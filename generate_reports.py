@@ -20,6 +20,12 @@ def main():
             adv = json.load(f)
     except Exception:
         adv = None
+    lit = None
+    try:
+        with open('outputs_literature/literature_meta_recent3y_summary.json') as f:
+            lit = json.load(f)
+    except Exception:
+        lit = None
 
     # make simple plots: top 10 metab SHAP and prot SHAP if available
     try:
@@ -55,11 +61,18 @@ def main():
             f.write(f'- 蛋白组学：{prot_sum.get("n_features","?")} features, {prot_sum.get("n_samples","?")} samples\n')
         if adv is not None:
             f.write(f'- 嵌套 CV 简要：AUC mean = {adv.get("lr_cv_auc_mean","?")}, xgb mean = {adv.get("xgb_cv_auc_mean","?")}\n')
+        if lit is not None:
+            f.write(
+                f'- 近三年文献荟萃：{lit.get("n_markers_with_recent_evidence","?")}/'
+                f'{lit.get("n_markers","?")} markers 有证据，'
+                f'总命中 {lit.get("total_recent_3y_hits","?")} 篇\n'
+            )
         f.write('\n## 文件与图\n')
         f.write('- Top 代谢物注释： [outputs_advanced/metabolite_annotations.tsv](outputs_advanced/metabolite_annotations.tsv)\n')
         f.write('- PubMed 汇总： [outputs_advanced/pubmed_expanded.tsv](outputs_advanced/pubmed_expanded.tsv)\n')
         f.write('- 最终面板预测与 ROC： [outputs_advanced/final_panel.csv](outputs_advanced/final_panel.csv), [outputs_advanced/final_panel_roc.png](outputs_advanced/final_panel_roc.png)\n')
         f.write('- 多组学 SHAP： [outputs_multiomics/xgb_shap_multi.tsv](outputs_multiomics/xgb_shap_multi.tsv)\n')
+        f.write('- 近三年文献荟萃： [outputs_literature/literature_meta_recent3y.tsv](outputs_literature/literature_meta_recent3y.tsv)\n')
         f.write('\n## 局限与建议\n')
         f.write('- 当前模型需独立验证；建议外部队列或留出集进行验证。\n')
     print('Report generated:', OUT_MD)

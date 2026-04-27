@@ -31,6 +31,47 @@ def build_matrix(df):
     mat = mat.dropna(how='all')
     return mat
 
+
+def _normalize_col_name(name):
+    return re.sub(r'[\s_]+', '', str(name).strip().lower())
+
+
+def build_gene_symbol_map(df):
+    if df is None or df.empty:
+        return {}
+    cols = [str(c) for c in df.columns]
+    feat_col = cols[0]
+    col_norm = {_normalize_col_name(c): c for c in cols}
+    candidate_keys = [
+        'genesymbol',
+        'symbol',
+        'genename',
+        'gene',
+        '官方基因名',
+        '基因名',
+    ]
+    gene_col = None
+    for key in candidate_keys:
+        if key in col_norm:
+            gene_col = col_norm[key]
+            break
+    if gene_col is None:
+        for c in cols[1:]:
+            n = _normalize_col_name(c)
+            if 'gene' in n and ('symbol' in n or 'name' in n):
+                gene_col = c
+                break
+    if gene_col is None:
+        return {}
+
+    sub = df[[feat_col, gene_col]].copy()
+    sub[feat_col] = sub[feat_col].astype(str).str.strip()
+    sub[gene_col] = sub[gene_col].astype(str).str.strip()
+    sub = sub[(sub[feat_col] != '') & (sub[gene_col] != '')]
+    if sub.empty:
+        return {}
+    return dict(zip(sub[feat_col], sub[gene_col]))
+
 def align_samples(mat):
     if os.path.exists('outputs/sample_metadata.csv'):
         meta = pd.read_csv('outputs/sample_metadata.csv', index_col=0)
@@ -96,7 +137,8 @@ def differential(mat, meta):
     res.to_csv(f'{OUT}/differential_prot.tsv', sep='\t')
     return res
 
-def xgb_shap(mat, meta):
+def xgb_shap(mat, meta, gene_map=None):
+    gene_map = gene_map or {}
     samp_mask = meta['group'] != 'QC'
     X = mat.T.loc[samp_mask.index[samp_mask]]
     y = (meta.loc[samp_mask.index[samp_mask],'group']=='SLE').astype(int).values
@@ -107,17 +149,26 @@ def xgb_shap(mat, meta):
     imp = np.abs(shap_vals).mean(axis=0)
     df = pd.Series(imp, index=X.columns).sort_values(ascending=False)
     df.to_csv(f'{OUT}/xgb_shap_prot.tsv', sep='\t')
+    annotated = pd.DataFrame(
+        {
+            'protein_id': df.index.astype(str),
+            'gene_symbol': [gene_map.get(str(pid), '') for pid in df.index],
+            'mean_abs_shap': df.values,
+        }
+    )
+    annotated.to_csv(f'{OUT}/xgb_shap_prot_annotated.tsv', sep='\t', index=False)
     return df
 
 def main():
     xls, main, df = read_prot()
+    gene_map = build_gene_symbol_map(df)
     mat = build_matrix(df)
     mat2, meta = align_samples(mat)
     norm = qc_normalize(mat2)
     logm = preprocess(norm)
     logm.to_csv(f'{OUT}/filtered_prot_matrix.tsv', sep='\t')
     res = differential(logm, meta)
-    imp = xgb_shap(logm, meta)
+    imp = xgb_shap(logm, meta, gene_map=gene_map)
     summary = {'n_features':int(logm.shape[0]), 'n_samples':int(logm.shape[1])}
     with open(f'{OUT}/summary.json','w') as f:
         json.dump(summary,f)

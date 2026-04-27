@@ -4,6 +4,7 @@ from datetime import datetime
 import subprocess
 
 import streamlit as st
+import pandas as pd
 
 import run_pipeline
 
@@ -244,7 +245,7 @@ if run_button:
             m2.metric("初始特征数", summary.get("n_features", "N/A"))
             m3.metric("FDR<0.05 特征", summary.get("n_significant_fdr05", "N/A"))
 
-            tabs = st.tabs(["图像预览", "结果下载"])
+            tabs = st.tabs(["图像预览", "文献证据", "结果下载"])
             with tabs[0]:
                 image_candidates = [
                     artifacts_dir / "outputs" / "volcano.png",
@@ -260,6 +261,26 @@ if run_button:
                     st.warning("本次运行未检测到可预览图像，可在下载区获取全部文件。")
 
             with tabs[1]:
+                lit_file = artifacts_dir / "outputs_literature" / "literature_meta_recent3y.tsv"
+                if lit_file.exists():
+                    try:
+                        lit_df = pd.read_csv(lit_file, sep="\t")
+                        if not lit_df.empty and "recent_3y_count" in lit_df.columns:
+                            preview_cols = [c for c in ["modality", "marker", "gene_symbol", "recent_3y_count", "pmids"] if c in lit_df.columns]
+                            top10 = lit_df.sort_values("recent_3y_count", ascending=False).head(10)[preview_cols]
+                            st.markdown("**Top10 Marker 近三年文献命中数**")
+                            st.dataframe(top10, use_container_width=True)
+                            chart_df = top10[["marker", "recent_3y_count"]].set_index("marker")
+                            st.markdown("**可视化柱状图**")
+                            st.bar_chart(chart_df, use_container_width=True)
+                        else:
+                            st.info("文献证据结果为空（本次未检索到可用 marker）。")
+                    except Exception as exc:
+                        st.warning(f"文献证据预览读取失败：{exc}")
+                else:
+                    st.info("本次运行暂无文献证据结果文件。")
+
+            with tabs[2]:
                 safe_zip_name = (zip_filename.strip() or f"{effective_run_name}_分析结果.zip")
                 if not safe_zip_name.lower().endswith(".zip"):
                     safe_zip_name += ".zip"
