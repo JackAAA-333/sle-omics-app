@@ -260,9 +260,14 @@ if run_button:
             saved_met = save_upload(metabolite_file, staging, f"metabolite{Path(metabolite_file.name).suffix.lower()}")
 
         st.info("任务已启动，正在执行完整分析流程。")
+        progress_label = st.empty()
+        progress_bar = st.progress(0)
         log_area = st.empty()
         logs = []
         result = {}
+        total_steps = 0
+        completed_steps = 0
+        current_step = "准备中"
 
         generator = run_pipeline.run_pipeline(
             saved_prot,
@@ -277,9 +282,29 @@ if run_button:
             while True:
                 line = next(generator)
                 logs.append(line)
+                if line.startswith("[INFO] 本次将执行脚本："):
+                    scripts_part = line.split("：", 1)[-1].strip()
+                    scripts = [s.strip() for s in scripts_part.split(",") if s.strip()]
+                    total_steps = len(scripts)
+                elif line.startswith("[RUN ]"):
+                    cmd = line.replace("[RUN ]", "").strip()
+                    current_step = Path(cmd.split()[-1]).name if cmd else "运行中"
+                elif line.startswith("[DONE]"):
+                    completed_steps += 1
+
+                if total_steps > 0:
+                    pct = min(int(completed_steps * 100 / total_steps), 100)
+                    progress_bar.progress(pct)
+                    progress_label.markdown(
+                        f"**分析进度：{pct}%**  \n"
+                        f"当前步骤：`{current_step}`  \n"
+                        f"已完成：{completed_steps}/{total_steps}"
+                    )
                 log_area.text_area("运行日志", value="".join(logs), height=360)
         except StopIteration as stop:
             result = stop.value or {}
+            progress_bar.progress(100)
+            progress_label.markdown("**分析进度：100%**  \n当前步骤：`全部完成`")
         except Exception as exc:
             st.error(f"分析失败：{exc}")
 

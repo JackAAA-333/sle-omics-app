@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import warnings
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -55,7 +56,20 @@ def build_matrix(df, sample_cols, id_col='Met ID'):
     mat = df[sample_cols].copy()
     mat.index = features
     mat = mat.apply(pd.to_numeric, errors='coerce')
+    mat = mat.replace([np.inf, -np.inf], np.nan)
     return mat
+
+
+def sanitize_numeric_matrix(mat, name='matrix'):
+    mat2 = mat.copy()
+    mat2 = mat2.apply(pd.to_numeric, errors='coerce')
+    inf_count = int(np.isinf(mat2.values).sum())
+    nan_count_before = int(np.isnan(mat2.values).sum())
+    if inf_count > 0:
+        mat2 = mat2.replace([np.inf, -np.inf], np.nan)
+    nan_count_after = int(np.isnan(mat2.values).sum())
+    print(f"[QC] {name}: inf={inf_count}, nan_before={nan_count_before}, nan_after={nan_count_after}")
+    return mat2
 
 
 def build_sample_metadata(sample_cols):
@@ -71,6 +85,7 @@ def build_sample_metadata(sample_cols):
 
 
 def qc_normalize(mat, sample_meta):
+    mat = sanitize_numeric_matrix(mat, name='raw_for_qc')
     qc_samples = sample_meta[sample_meta['group']=='QC'].index.tolist()
     eps = 1e-9
     if len(qc_samples) == 0:
@@ -80,13 +95,28 @@ def qc_normalize(mat, sample_meta):
         ref = mat[qc_samples].median(axis=1)
     ref = ref.replace(0, eps)
     mat_norm = mat.div(ref, axis=0)
+    mat_norm = mat_norm.replace([np.inf, -np.inf], np.nan)
     return mat_norm
 
 
 def transform_and_scale(mat):
-    mat_log = np.log2(mat + 1e-6)
+    mat = sanitize_numeric_matrix(mat, name='normalized_matrix')
+    non_positive = int((mat <= 0).sum().sum())
+    if non_positive > 0:
+        print(f"[QC] normalized_matrix: detected {non_positive} non-positive values, set to NaN before log2.")
+    mat = mat.mask(mat <= 0, np.nan)
+    mat_log = np.log2(mat)
+    mat_log = mat_log.replace([np.inf, -np.inf], np.nan)
+    row_median = mat_log.median(axis=1)
+    mat_log_filled = mat_log.T.fillna(row_median).T.fillna(0.0)
     scaler = StandardScaler()
-    mat_z = pd.DataFrame(scaler.fit_transform(mat_log.fillna(0).T).T, index=mat_log.index, columns=mat_log.columns)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="invalid value encountered in cast", category=RuntimeWarning)
+        mat_z = pd.DataFrame(
+            scaler.fit_transform(mat_log_filled.T).T,
+            index=mat_log.index,
+            columns=mat_log.columns,
+        )
     return mat_log, mat_z
 
 
@@ -137,6 +167,7 @@ def compute_auc(mat, sample_meta):
 
 
 def multivariate_models(X, y):
+    X = X.replace([np.inf, -np.inf], np.nan).fillna(0.0)
     # LASSO with repeated CV
     rkf = RepeatedStratifiedKFold(n_splits=5, n_repeats=3, random_state=42)
     lasso = LogisticRegressionCV(Cs=10, penalty='l1', solver='saga', cv=rkf, scoring='roc_auc', max_iter=5000, n_jobs=1)
@@ -158,6 +189,7 @@ def main():
     sample_meta.to_csv(os.path.join(OUTDIR,'sample_metadata.csv'))
 
     mat = build_matrix(df, sample_cols)
+    mat = sanitize_numeric_matrix(mat, name='raw_matrix')
     mat.to_csv(os.path.join(OUTDIR,'raw_matrix.tsv'), sep='\t')
 
     # QC normalization
