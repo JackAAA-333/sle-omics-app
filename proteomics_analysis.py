@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import numpy as np
 import pandas as pd
 from scipy.stats import ttest_ind
@@ -27,11 +28,27 @@ def build_matrix(df):
     return mat
 
 def align_samples(mat):
-    meta = pd.read_csv('outputs/sample_metadata.csv', index_col=0)
-    # keep only samples in meta
-    cols = [c for c in mat.columns if c in meta.index]
+    if os.path.exists('outputs/sample_metadata.csv'):
+        meta = pd.read_csv('outputs/sample_metadata.csv', index_col=0)
+        cols = [c for c in mat.columns if c in meta.index]
+        mat2 = mat[cols]
+        if len(cols) > 0:
+            return mat2, meta.loc[cols]
+    # fallback: infer groups directly from protein sample headers
+    cols = []
+    groups = []
+    for c in mat.columns:
+        name = str(c)
+        m = re.search(r'(SLE|HC|QC)', name, re.IGNORECASE)
+        if m:
+            cols.append(c)
+            groups.append(m.group(1).upper())
+    if len(cols) == 0:
+        cols = list(mat.columns)
+        groups = ['UNK'] * len(cols)
     mat2 = mat[cols]
-    return mat2, meta.loc[cols]
+    meta = pd.DataFrame({'group': groups}, index=cols)
+    return mat2, meta
 
 def qc_normalize(mat):
     qc_cols = [c for c in mat.columns if c.startswith('QC') or c.upper().startswith('QC-')]

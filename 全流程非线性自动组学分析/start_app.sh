@@ -1,52 +1,42 @@
 #!/bin/zsh
 set -euo pipefail
 
-PROJECT_ROOT="/Users/jacka/Desktop/SLE分析"
-APP_DIR="$PROJECT_ROOT/全流程非线性自动组学分析"
+SOURCE_ROOT="/Users/jacka/Desktop/SLE分析"
+WORK_ROOT="$HOME/Library/Application Support/SLE-OmiX-App"
+APP_RELATIVE_DIR="全流程非线性自动组学分析"
+PROJECT_ROOT="$WORK_ROOT"
+APP_DIR="$PROJECT_ROOT/$APP_RELATIVE_DIR"
 VENV_DIR="$PROJECT_ROOT/.venv"
 RUNTIME_DIR="$APP_DIR/.runtime"
 PID_FILE="$RUNTIME_DIR/streamlit.pid"
 LOG_FILE="$RUNTIME_DIR/streamlit.log"
-PORT="8501"
-URL="http://127.0.0.1:${PORT}"
 
 mkdir -p "$RUNTIME_DIR"
+mkdir -p "$PROJECT_ROOT"
 
-if [[ -f "$PID_FILE" ]]; then
-  EXISTING_PID="$(<"$PID_FILE")"
-  if kill -0 "$EXISTING_PID" 2>/dev/null; then
-    open "$URL"
-    exit 0
-  fi
-fi
-
-if lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  open "$URL"
-  exit 0
-fi
+# Run from Application Support to avoid desktop folder permission restrictions for app bundles.
+rsync -a --delete \
+  --exclude ".git/" \
+  --exclude ".venv/" \
+  --exclude ".history/" \
+  --exclude "outputs/" \
+  --exclude "outputs_*/" \
+  --exclude "*.app/" \
+  "$SOURCE_ROOT/" "$PROJECT_ROOT/"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
-  /usr/bin/python3 -m venv "$VENV_DIR"
+  if [[ -x "/opt/homebrew/bin/python3.14" ]]; then
+    "/opt/homebrew/bin/python3.14" -m venv "$VENV_DIR"
+  else
+    python3 -m venv "$VENV_DIR"
+  fi
 fi
 
 source "$VENV_DIR/bin/activate"
+python -m pip install --upgrade pip >>"$LOG_FILE" 2>&1
 
-if ! python -c "import streamlit" >/dev/null 2>&1; then
-  pip install -r "$APP_DIR/requirements.txt" >>"$LOG_FILE" 2>&1
+if ! python -c "import streamlit, webview" >/dev/null 2>&1; then
+  pip install -r "$PROJECT_ROOT/requirements.txt" >>"$LOG_FILE" 2>&1
 fi
 
-nohup python -m streamlit run "$APP_DIR/app.py" \
-  --server.headless true \
-  --server.port "$PORT" \
-  --server.address 127.0.0.1 >>"$LOG_FILE" 2>&1 &
-
-echo $! >"$PID_FILE"
-
-for _ in {1..20}; do
-  if lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.5
-done
-
-open "$URL"
+python "$APP_DIR/desktop_launcher.py" >>"$LOG_FILE" 2>&1

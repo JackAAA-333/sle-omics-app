@@ -6,7 +6,7 @@ import streamlit as st
 import run_pipeline
 
 LOGO_PATH = Path(
-    "/Users/jacka/.cursor/projects/Users-jacka-Desktop-SLE/assets/__logo__-___-b1a3d83e-1faf-44f2-a085-12688f7ecc9a.png"
+    "/Users/jacka/.cursor/projects/Users-jacka-Desktop-SLE/assets/__logo__-___-40948cae-d905-4025-b378-50bdd1b3110b.png"
 )
 ORG_NAME = "SLE 多组学联合分析项目组"
 PROJECT_NAME = "全流程非线性自动组学分析"
@@ -46,31 +46,85 @@ with left:
 with right:
     metabolite_file = st.file_uploader("代谢组数据", type=["csv", "tsv", "xlsx"], key="met")
 
-outdir = st.text_input("结果保存目录", value="outputs_web")
+outdir = st.text_input("结果保存目录（父目录）", value="outputs_web")
+run_name = st.text_input("结果子文件夹名（可选，自定义本次任务文件夹）", value="")
 run_button = st.button("开始自动分析", type="primary", use_container_width=True)
+
+mode_title = ""
+mode_desc = ""
+planned_modules = []
+mode_color = "#6b7280"
+if protein_file and metabolite_file:
+    mode_title = "双组学模式"
+    mode_desc = "已上传蛋白组 + 代谢组，将执行单组学分析与多组学整合分析。"
+    mode_color = "#7c3aed"
+    planned_modules = [
+        "preprocess_and_analyze.py（代谢组分析）",
+        "proteomics_analysis.py（蛋白组分析）",
+        "multiomics_integration.py（多组学整合）",
+        "generate_reports.py（汇总报告）",
+    ]
+elif protein_file:
+    mode_title = "单组学模式（蛋白组）"
+    mode_desc = "仅上传蛋白组，将执行蛋白组分析。"
+    mode_color = "#2563eb"
+    planned_modules = [
+        "proteomics_analysis.py（蛋白组分析）",
+    ]
+elif metabolite_file:
+    mode_title = "单组学模式（代谢组）"
+    mode_desc = "仅上传代谢组，将执行代谢组分析与报告生成。"
+    mode_color = "#0ea5e9"
+    planned_modules = [
+        "preprocess_and_analyze.py（代谢组分析）",
+        "generate_reports.py（汇总报告）",
+    ]
+else:
+    mode_title = "待上传数据"
+    mode_desc = "请至少上传一类组学数据（蛋白组或代谢组）。"
+    mode_color = "#6b7280"
+
+st.markdown("### 当前模式")
+st.markdown(
+    f"<span style='display:inline-block;padding:4px 10px;border-radius:9999px;"
+    f"background:{mode_color};color:white;font-size:0.9rem;font-weight:600;'>{mode_title}</span>",
+    unsafe_allow_html=True,
+)
+if protein_file or metabolite_file:
+    st.success(mode_desc)
+else:
+    st.info(mode_desc)
+if planned_modules:
+    st.markdown("**本次将执行模块：**")
+    for module in planned_modules:
+        st.markdown(f"- {module}")
 
 st.markdown("### 流程说明")
 st.markdown(
-    "- 自动数据规范化与样本对齐\n"
-    "- 代谢组/蛋白组单组学分析\n"
-    "- 多组学非线性整合建模（XGBoost + SHAP）\n"
+    "- 自动数据规范化与样本表头识别\n"
+    "- 支持只上传单组学（蛋白或代谢）也可分析\n"
+    "- 双组学时自动执行非线性整合建模（XGBoost + SHAP）\n"
     "- 自动汇总报告、图像预览与结果打包"
 )
 
 if run_button:
-    if not protein_file or not metabolite_file:
-        st.error("请先上传蛋白组和代谢组文件。")
+    if not protein_file and not metabolite_file:
+        st.error("请至少上传一类组学文件（蛋白组或代谢组）。")
     else:
         staging = Path(outdir) / "_uploads"
-        saved_prot = save_upload(protein_file, staging, f"protein{Path(protein_file.name).suffix.lower()}")
-        saved_met = save_upload(metabolite_file, staging, f"metabolite{Path(metabolite_file.name).suffix.lower()}")
+        saved_prot = None
+        saved_met = None
+        if protein_file:
+            saved_prot = save_upload(protein_file, staging, f"protein{Path(protein_file.name).suffix.lower()}")
+        if metabolite_file:
+            saved_met = save_upload(metabolite_file, staging, f"metabolite{Path(metabolite_file.name).suffix.lower()}")
 
         st.info("任务已启动，正在执行完整分析流程。")
         log_area = st.empty()
         logs = []
         result = {}
 
-        generator = run_pipeline.run_pipeline(saved_prot, saved_met, outdir=outdir)
+        generator = run_pipeline.run_pipeline(saved_prot, saved_met, outdir=outdir, run_name=run_name.strip() or None)
         try:
             while True:
                 line = next(generator)
