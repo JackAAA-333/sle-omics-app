@@ -3,6 +3,7 @@ import json
 import re
 import numpy as np
 import pandas as pd
+import requests
 from scipy.stats import ttest_ind
 from sklearn.metrics import roc_auc_score
 import xgboost as xgb
@@ -10,6 +11,7 @@ import shap
 
 OUT = 'outputs_prot'
 os.makedirs(OUT, exist_ok=True)
+CACHE_FILE = os.path.join(OUT, "gene_symbol_lookup_cache.json")
 
 def read_prot():
     xls = pd.read_excel('prot.xlsx', sheet_name=None)
@@ -73,15 +75,122 @@ def build_gene_symbol_map(df):
     return dict(zip(sub[feat_col], sub[gene_col]))
 
 
-def export_gene_annotation_catalog(mat, gene_map):
+def _extract_gene_symbol_from_text(text):
+    m = re.search(r"\bGN=([A-Za-z0-9\-]+)\b", str(text))
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _extract_uniprot_accession(text):
+    token = str(text).strip().split()[0]
+    patterns = [
+        r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$",
+        r"^[A-NR-Z][0-9]{5}$",
+        r"^[A-NR-Z][0-9][A-Z0-9]{3}[0-9]$",
+    ]
+    for p in patterns:
+        if re.match(p, token):
+            return token
+    return ""
+
+
+def _load_lookup_cache():
+    if not os.path.exists(CACHE_FILE):
+        return {}
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_lookup_cache(cache):
+    try:
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _query_uniprot_gene_symbol(protein_id):
+    accession = _extract_uniprot_accession(protein_id)
+    if accession:
+        query = f"accession:{accession} AND reviewed:true"
+    else:
+        name = str(protein_id).split(" OS=")[0].strip()
+        if not name:
+            return ""
+        query = f'protein_name:"{name}" AND reviewed:true'
+    url = "https://rest.uniprot.org/uniprotkb/search"
+    params = {
+        "query": query,
+        "fields": "gene_primary,accession",
+        "size": 1,
+        "format": "json",
+    }
+    try:
+        r = requests.get(url, params=params, timeout=12)
+        r.raise_for_status()
+        results = r.json().get("results", [])
+        if not results:
+            return ""
+        genes = results[0].get("genes", [])
+        if not genes:
+            return ""
+        primary = genes[0].get("geneName", {}).get("value", "")
+        return str(primary).strip()
+    except Exception:
+        return ""
+
+
+def enrich_gene_symbol_map(mat, gene_map):
+    cache = _load_lookup_cache()
+    out_map = dict(gene_map)
+    source_map = {}
+    updated = False
+    for pid in mat.index.astype(str):
+        existing = str(out_map.get(pid, "")).strip()
+        if existing and existing.lower() not in {"nan", "none"}:
+            source_map[pid] = "input_annotation"
+            continue
+        parsed = _extract_gene_symbol_from_text(pid)
+        if parsed:
+            out_map[pid] = parsed
+            source_map[pid] = "parsed_gn"
+            continue
+        if pid in cache and str(cache[pid]).strip():
+            out_map[pid] = str(cache[pid]).strip()
+            source_map[pid] = "cache_uniprot"
+            continue
+        online = _query_uniprot_gene_symbol(pid)
+        if online:
+            out_map[pid] = online
+            cache[pid] = online
+            source_map[pid] = "online_uniprot"
+            updated = True
+        else:
+            source_map[pid] = "missing"
+    if updated:
+        _save_lookup_cache(cache)
+    return out_map, source_map
+
+
+def export_gene_annotation_catalog(mat, gene_map, source_map=None):
+    source_map = source_map or {}
     rows = []
     for pid in mat.index.astype(str):
         gs = str(gene_map.get(pid, "")).strip()
+        src = source_map.get(pid, "input_annotation" if gs else "missing")
         rows.append(
             {
                 "protein_id": pid,
                 "gene_symbol": gs,
                 "annotation_status": "annotated" if gs else "missing",
+                "annotation_source": src,
             }
         )
     ann = pd.DataFrame(rows)
@@ -235,7 +344,8 @@ def main():
     xls, main, df = read_prot()
     gene_map = build_gene_symbol_map(df)
     mat = build_matrix(df)
-    export_gene_annotation_catalog(mat, gene_map)
+    gene_map, source_map = enrich_gene_symbol_map(mat, gene_map)
+    export_gene_annotation_catalog(mat, gene_map, source_map=source_map)
     mat2, meta = align_samples(mat)
     norm = qc_normalize(mat2)
     logm = preprocess(norm)
