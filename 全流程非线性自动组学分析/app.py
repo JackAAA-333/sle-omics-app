@@ -1,5 +1,6 @@
 import zipfile
 from pathlib import Path
+from datetime import datetime
 
 import streamlit as st
 
@@ -32,6 +33,32 @@ def make_zip(source_dir: Path, zip_path: Path):
             zf.write(file, arcname=str(file.relative_to(source_dir)))
 
 
+def pick_directory(initial_dir: str | None = None) -> str | None:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception:
+        return None
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    selected = filedialog.askdirectory(initialdir=initial_dir or str(Path.home()))
+    root.destroy()
+    return selected or None
+
+
+def is_directory_writable(path: Path) -> tuple[bool, str]:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        test_file = path / ".write_test_tmp"
+        with open(test_file, "w", encoding="utf-8") as f:
+            f.write("ok")
+        test_file.unlink(missing_ok=True)
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
 header_left, header_right = st.columns([1, 7])
 with header_left:
     if LOGO_PATH.exists():
@@ -46,8 +73,36 @@ with left:
 with right:
     metabolite_file = st.file_uploader("代谢组数据", type=["csv", "tsv", "xlsx"], key="met")
 
-outdir = st.text_input("结果保存目录（父目录）", value="outputs_web")
-run_name = st.text_input("结果子文件夹名（可选，自定义本次任务文件夹）", value="")
+st.markdown("### 结果保存设置")
+save_mode = st.radio(
+    "保存位置",
+    ["应用默认目录", "项目目录（SLE分析）", "自定义绝对路径"],
+    horizontal=True,
+)
+if save_mode == "应用默认目录":
+    outdir = "outputs_web"
+    st.caption("将保存到应用运行目录下（适合日常使用）。")
+elif save_mode == "项目目录（SLE分析）":
+    outdir = "/Users/jacka/Desktop/SLE分析/outputs_web"
+    st.caption("将保存到项目目录（便于开发与脚本联调）。")
+else:
+    if "custom_outdir" not in st.session_state:
+        st.session_state.custom_outdir = "/Users/jacka/Desktop/SLE分析/outputs_web"
+    pick_col, show_col = st.columns([1, 3])
+    with pick_col:
+        if st.button("选择文件夹", use_container_width=True):
+            selected_dir = pick_directory(st.session_state.custom_outdir)
+            if selected_dir:
+                st.session_state.custom_outdir = selected_dir
+            else:
+                st.warning("未选择目录，已保留当前路径。")
+    with show_col:
+        st.text_input("自定义结果保存目录（绝对路径）", key="custom_outdir")
+    outdir = st.session_state.custom_outdir
+
+default_run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
+run_name = st.text_input("结果子文件夹名（可选，自定义本次任务文件夹）", value=default_run_name)
+zip_filename = st.text_input("结果压缩包文件名（可选）", value=f"{run_name}_分析结果.zip")
 run_button = st.button("开始自动分析", type="primary", use_container_width=True)
 
 mode_title = ""
@@ -99,6 +154,18 @@ if planned_modules:
     for module in planned_modules:
         st.markdown(f"- {module}")
 
+effective_run_name = run_name.strip() or default_run_name
+effective_outdir = outdir.strip() if isinstance(outdir, str) else str(outdir)
+
+if effective_outdir:
+    outdir_path = Path(effective_outdir).expanduser()
+    if not outdir_path.exists():
+        outdir_path.mkdir(parents=True, exist_ok=True)
+        st.success(f"目录已创建成功：{outdir_path}")
+    effective_outdir = str(outdir_path)
+
+st.caption(f"最终保存路径：`{effective_outdir}/{effective_run_name}`")
+
 st.markdown("### 流程说明")
 st.markdown(
     "- 自动数据规范化与样本表头识别\n"
@@ -111,7 +178,15 @@ if run_button:
     if not protein_file and not metabolite_file:
         st.error("请至少上传一类组学文件（蛋白组或代谢组）。")
     else:
-        staging = Path(outdir) / "_uploads"
+        if not effective_outdir:
+            st.error("请填写有效的结果保存目录。")
+            st.stop()
+        writable, err_msg = is_directory_writable(Path(effective_outdir).expanduser())
+        if not writable:
+            st.error(f"结果目录不可写，请更换目录后重试。\n错误信息：{err_msg}")
+            st.stop()
+
+        staging = Path(effective_outdir) / "_uploads"
         saved_prot = None
         saved_met = None
         if protein_file:
@@ -124,7 +199,12 @@ if run_button:
         logs = []
         result = {}
 
-        generator = run_pipeline.run_pipeline(saved_prot, saved_met, outdir=outdir, run_name=run_name.strip() or None)
+        generator = run_pipeline.run_pipeline(
+            saved_prot,
+            saved_met,
+            outdir=effective_outdir,
+            run_name=effective_run_name,
+        )
         try:
             while True:
                 line = next(generator)
@@ -162,13 +242,16 @@ if run_button:
                     st.warning("本次运行未检测到可预览图像，可在下载区获取全部文件。")
 
             with tabs[1]:
-                zip_path = run_dir / "analysis_results.zip"
+                safe_zip_name = (zip_filename.strip() or f"{effective_run_name}_分析结果.zip")
+                if not safe_zip_name.lower().endswith(".zip"):
+                    safe_zip_name += ".zip"
+                zip_path = run_dir / safe_zip_name
                 cover_path = artifacts_dir / "report_cover.md"
                 make_zip(artifacts_dir, zip_path)
                 st.download_button(
                     "下载全部结果 (ZIP)",
                     data=zip_path.read_bytes(),
-                    file_name=zip_path.name,
+                    file_name=safe_zip_name,
                     mime="application/zip",
                     use_container_width=True,
                 )

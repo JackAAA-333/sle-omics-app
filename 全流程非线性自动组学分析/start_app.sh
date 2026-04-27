@@ -11,7 +11,6 @@ RUNTIME_DIR="$APP_DIR/.runtime"
 PID_FILE="$RUNTIME_DIR/streamlit.pid"
 LOG_FILE="$RUNTIME_DIR/streamlit.log"
 
-mkdir -p "$RUNTIME_DIR"
 mkdir -p "$PROJECT_ROOT"
 
 # Run from Application Support to avoid desktop folder permission restrictions for app bundles.
@@ -23,6 +22,8 @@ rsync -a --delete \
   --exclude "outputs_*/" \
   --exclude "*.app/" \
   "$SOURCE_ROOT/" "$PROJECT_ROOT/"
+
+mkdir -p "$RUNTIME_DIR"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   if [[ -x "/opt/homebrew/bin/python3.14" ]]; then

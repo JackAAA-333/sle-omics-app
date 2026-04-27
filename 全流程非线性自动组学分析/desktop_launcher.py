@@ -64,6 +64,8 @@ def write_launch_log(message: str) -> None:
 
 def open_standalone_browser_window() -> None:
     # Fallback: launch a standalone app-like window (not regular browser tab).
+    browser_profile_dir = PROJECT_ROOT / ".browser_profile"
+    browser_profile_dir.mkdir(parents=True, exist_ok=True)
     chrome_paths = [
         "/Applications/Google Chrome.app",
         "/Applications/Chromium.app",
@@ -71,7 +73,17 @@ def open_standalone_browser_window() -> None:
     ]
     for app_path in chrome_paths:
         if Path(app_path).exists():
-            subprocess.Popen(["open", "-na", app_path, "--args", f"--app={URL}"])
+            subprocess.Popen(
+                [
+                    "open",
+                    "-na",
+                    app_path,
+                    "--args",
+                    f"--user-data-dir={browser_profile_dir}",
+                    "--new-window",
+                    f"--app={URL}",
+                ]
+            )
             write_launch_log(f"Fallback launched with app mode: {app_path}")
             return
     subprocess.Popen(["open", URL])
