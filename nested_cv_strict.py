@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import os
+import warnings
 from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.metrics import roc_auc_score
@@ -10,8 +12,11 @@ PROT = 'outputs_prot/filtered_prot_matrix.tsv'
 META = 'outputs/sample_metadata.csv'
 OUT_SUM = 'outputs_advanced/nested_cv_strict.json'
 OUT_FREQ = 'outputs_advanced/nested_cv_strict_feature_freq.tsv'
+os.makedirs('outputs_advanced', exist_ok=True)
 
 def load_matrix(path):
+    if not os.path.exists(path):
+        return pd.DataFrame()
     return pd.read_csv(path, sep='\t', index_col=0)
 
 def main():
@@ -48,8 +53,19 @@ def main():
             y_train, y_test = y[train_idx], y[test_idx]
             # inner CV for hyperparam with L1 selection
             inner = StratifiedKFold(n_splits=5, shuffle=True, random_state=1)
-            lr = LogisticRegressionCV(Cs=10, cv=inner, penalty='l1', solver='liblinear', scoring='roc_auc', max_iter=2000)
-            lr.fit(X_train.fillna(0), y_train)
+            lr = LogisticRegressionCV(
+                Cs=10,
+                cv=inner,
+                penalty='l1',
+                solver='liblinear',
+                scoring='roc_auc',
+                max_iter=2000,
+                use_legacy_attributes=True,
+            )
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="'.*penalty.*deprecated.*'", category=FutureWarning)
+                warnings.filterwarnings("ignore", message=".*default value for l1_ratios.*", category=FutureWarning)
+                lr.fit(X_train.fillna(0), y_train)
             probs = lr.predict_proba(X_test.fillna(0))[:,1]
             aucs.append(roc_auc_score(y_test, probs))
             coefs = lr.coef_[0]

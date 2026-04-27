@@ -126,7 +126,9 @@ def preprocess(mat):
     miss_frac = mat.isna().mean(axis=1)
     matf = mat[miss_frac <= 0.5]
     matf = matf.fillna(matf.median(axis=1), axis=0)
-    logm = np.log2(matf + 1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        logm_np = np.log2((matf + 1).to_numpy(dtype=float))
+    logm = pd.DataFrame(logm_np, index=matf.index, columns=matf.columns)
     return logm
 
 def differential(mat, meta):

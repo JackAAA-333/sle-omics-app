@@ -218,7 +218,14 @@ def main():
         try:
             X_lr = pd.DataFrame(zz)
             X_lr["t"] = t
-            lr = LogisticRegressionCV(cv=5, max_iter=5000, scoring="roc_auc", class_weight="balanced")
+            lr = LogisticRegressionCV(
+                cv=5,
+                l1_ratios=(0.0,),
+                max_iter=5000,
+                scoring="roc_auc",
+                class_weight="balanced",
+                use_legacy_attributes=True,
+            )
             lr.fit(X_lr, yy.astype(int))
             beta_t = float(lr.coef_.ravel()[-1])
             or_t = float(np.exp(beta_t))

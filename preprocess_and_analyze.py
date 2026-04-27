@@ -110,7 +110,10 @@ def transform_and_scale(mat):
     if non_positive > 0:
         print(f"[QC] normalized_matrix: detected {non_positive} non-positive values, set to NaN before log2.")
     mat = mat.mask(mat <= 0, np.nan)
-    mat_log = np.log2(mat)
+    # Silence expected invalid log warnings from NaN/filtered values.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mat_log_np = np.log2(mat.to_numpy(dtype=float))
+    mat_log = pd.DataFrame(mat_log_np, index=mat.index, columns=mat.columns)
     mat_log = mat_log.replace([np.inf, -np.inf], np.nan)
     row_median = mat_log.median(axis=1)
     mat_log_filled = mat_log.T.fillna(row_median).T.fillna(0.0)
@@ -184,8 +187,20 @@ def multivariate_models(X, y):
     X = X.replace([np.inf, -np.inf], np.nan).fillna(0.0)
     # LASSO with repeated CV
     rkf = RepeatedStratifiedKFold(n_splits=5, n_repeats=3, random_state=42)
-    lasso = LogisticRegressionCV(Cs=10, penalty='l1', solver='saga', cv=rkf, scoring='roc_auc', max_iter=5000, n_jobs=1)
-    lasso.fit(X, y)
+    lasso = LogisticRegressionCV(
+        Cs=10,
+        penalty='l1',
+        solver='saga',
+        cv=rkf,
+        scoring='roc_auc',
+        max_iter=5000,
+        n_jobs=1,
+        use_legacy_attributes=True,
+    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="'.*penalty.*deprecated.*'", category=FutureWarning)
+        warnings.filterwarnings("ignore", message=".*default value for l1_ratios.*", category=FutureWarning)
+        lasso.fit(X, y)
     coef = pd.Series(lasso.coef_.ravel(), index=X.columns)
 
     rf = RandomForestClassifier(n_estimators=500, random_state=42)
@@ -257,7 +272,12 @@ def main():
     # basic plots
     # volcano
     plt.figure(figsize=(6,5))
-    sns.scatterplot(x=np.log2(merged['fold_change']), y=merged['neg_log10_p'], hue=(merged['fdr']<0.05), legend=False, s=10)
+    fc = pd.to_numeric(merged['fold_change'], errors='coerce')
+    log2_fc = pd.Series(np.nan, index=fc.index, dtype=float)
+    pos_mask = fc > 0
+    with np.errstate(invalid="ignore", divide="ignore"):
+        log2_fc.loc[pos_mask] = np.log2(fc.loc[pos_mask].to_numpy(dtype=float))
+    sns.scatterplot(x=log2_fc, y=merged['neg_log10_p'], hue=(merged['fdr']<0.05), legend=False, s=10)
     plt.xlabel('log2(Fold Change)')
     plt.ylabel('-log10(p)')
     plt.title('Volcano')

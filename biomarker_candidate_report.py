@@ -1,5 +1,6 @@
 import json
 import argparse
+import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -52,6 +53,7 @@ def _load_config():
 
 
 THRESHOLD_PRESETS, PANEL_EVAL_CFG = _load_config()
+warnings.filterwarnings("ignore", message=r"Glyph .* missing from font\(s\).*", category=UserWarning)
 
 
 def _safe_read_table(path: Path, sep: str = "\t", index_col=None):
