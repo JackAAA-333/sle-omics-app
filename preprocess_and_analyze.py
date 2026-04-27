@@ -186,8 +186,15 @@ def compute_auc(mat, sample_meta):
 
 def multivariate_models(X, y):
     X = X.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    y_arr = np.asarray(y, dtype=int)
+    uniq, counts = np.unique(y_arr, return_counts=True)
+    if len(uniq) < 2:
+        raise ValueError("分组标签不足，无法进行二分类建模（需要同时包含 SLE 与 HC）。")
+    min_class_n = int(counts.min())
+    n_splits = max(2, min(5, min_class_n, int(len(y_arr))))
+    n_repeats = 3 if n_splits >= 3 else 1
     # LASSO with repeated CV
-    rkf = RepeatedStratifiedKFold(n_splits=5, n_repeats=3, random_state=42)
+    rkf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=42)
     lasso = LogisticRegressionCV(
         Cs=10,
         penalty='l1',
@@ -202,11 +209,11 @@ def multivariate_models(X, y):
         warnings.filterwarnings("ignore", message="'.*penalty.*deprecated.*'", category=FutureWarning)
         warnings.filterwarnings("ignore", message=".*default value for l1_ratios.*", category=FutureWarning)
         warnings.filterwarnings("ignore", category=ConvergenceWarning)
-        lasso.fit(X, y)
+        lasso.fit(X, y_arr)
     coef = pd.Series(lasso.coef_.ravel(), index=X.columns)
 
     rf = RandomForestClassifier(n_estimators=500, random_state=42)
-    rf_auc = cross_val_score(rf, X, y, cv=rkf, scoring='roc_auc', n_jobs=1)
+    rf_auc = cross_val_score(rf, X, y_arr, cv=rkf, scoring='roc_auc', n_jobs=1)
 
     return coef, rf_auc
 

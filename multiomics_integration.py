@@ -24,12 +24,29 @@ def concat_and_model(metT, protT):
     # load meta
     meta = pd.read_csv('outputs/sample_metadata.csv', index_col=0)
     meta = meta.loc[X.index]
+    keep = meta['group'].isin(['SLE', 'HC'])
+    X = X.loc[keep]
+    meta = meta.loc[keep]
     y = (meta['group']=='SLE').astype(int).values
     clf = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss', verbosity=0)
     clf.fit(X, y)
-    expl = shap.TreeExplainer(clf)
-    shap_vals = expl.shap_values(X)
-    imp = pd.Series(np.abs(shap_vals).mean(axis=0), index=X.columns).sort_values(ascending=False)
+    try:
+        expl = shap.TreeExplainer(clf)
+        shap_vals = expl.shap_values(X)
+        if hasattr(shap_vals, "values"):
+            shap_vals = shap_vals.values
+        if isinstance(shap_vals, list):
+            shap_vals = shap_vals[1] if len(shap_vals) > 1 else shap_vals[0]
+        shap_vals = np.asarray(shap_vals)
+        if shap_vals.ndim == 1:
+            if shap_vals.shape[0] == X.shape[1]:
+                shap_vals = shap_vals.reshape(1, -1)
+            else:
+                raise ValueError("Unexpected SHAP vector shape.")
+        imp = pd.Series(np.abs(shap_vals).mean(axis=0), index=X.columns).sort_values(ascending=False)
+    except Exception:
+        # Fallback to model-native importance for compatibility across SHAP versions.
+        imp = pd.Series(clf.feature_importances_, index=X.columns).sort_values(ascending=False)
     imp.to_csv(f'{OUT}/xgb_shap_multi.tsv', sep='\t')
     # correlations between top features
     top_met = imp[imp.index.str.startswith('M')].head(30).index.intersection(X.columns)

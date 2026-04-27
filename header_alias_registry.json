@@ -1,0 +1,60 @@
+{
+  "protein": {
+    "column_aliases": {
+      "Protein ID": [
+        "Accession"
+      ],
+      "Gene Symbol": [
+        "Gene Names"
+      ]
+    }
+  },
+  "sample_group_aliases": {
+    "SLE": [
+      "Case-001",
+      "Case-002",
+      "Case-003",
+      "Case-004",
+      "Case-005",
+      "Case-006",
+      "Patient_01",
+      "Patient_02",
+      "Patient_03",
+      "Patient_04",
+      "Patient_05",
+      "Patient_06"
+    ],
+    "HC": [
+      "Healthy_001",
+      "Healthy_002",
+      "Healthy_003",
+      "Healthy_004",
+      "Healthy_005",
+      "Healthy_006",
+      "Control_01",
+      "Control_02",
+      "Control_03",
+      "Control_04",
+      "Control_05",
+      "Control_06"
+    ],
+    "QC": [
+      "QC_pool_1",
+      "QC_pool_2",
+      "QC_pool_3",
+      "Pool_01",
+      "Pool_02",
+      "Pool_03"
+    ]
+  },
+  "metabolite": {
+    "column_aliases": {
+      "Met ID": [
+        "feature_id"
+      ],
+      "Metabolite Name": [
+        "compound_name"
+      ]
+    }
+  }
+}

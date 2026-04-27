@@ -54,6 +54,7 @@ def _load_config():
 
 THRESHOLD_PRESETS, PANEL_EVAL_CFG = _load_config()
 warnings.filterwarnings("ignore", message=r"Glyph .* missing from font\(s\).*", category=UserWarning)
+warnings.filterwarnings("ignore", message=r"Attempting to set identical low and high ylims.*", category=UserWarning)
 
 
 def _safe_read_table(path: Path, sep: str = "\t", index_col=None):
