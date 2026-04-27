@@ -10,6 +10,7 @@ from sklearn.linear_model import LogisticRegressionCV, LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import RepeatedStratifiedKFold, cross_val_score
 from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.exceptions import ConvergenceWarning
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -200,6 +201,7 @@ def multivariate_models(X, y):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="'.*penalty.*deprecated.*'", category=FutureWarning)
         warnings.filterwarnings("ignore", message=".*default value for l1_ratios.*", category=FutureWarning)
+        warnings.filterwarnings("ignore", category=ConvergenceWarning)
         lasso.fit(X, y)
     coef = pd.Series(lasso.coef_.ravel(), index=X.columns)
 

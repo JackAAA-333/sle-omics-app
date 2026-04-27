@@ -168,8 +168,11 @@ def export_differential_annotated(res, gene_map):
     ann = res.reset_index().rename(columns={"feature": "protein_id"})
     ann["protein_id"] = ann["protein_id"].astype(str)
     ann["gene_symbol"] = ann["protein_id"].map(lambda x: str(gene_map.get(x, "")).strip())
+    ann["marker"] = ann["gene_symbol"]
+    ann.loc[ann["marker"].isin(["", "nan", "None"]), "marker"] = ann["protein_id"]
     ann["annotation_status"] = ann["gene_symbol"].apply(lambda x: "annotated" if x else "missing")
     ann.to_csv(f"{OUT}/differential_prot_annotated.tsv", sep="\t", index=False)
+    ann.to_csv(f"{OUT}/differential_prot_gene_symbol.tsv", sep="\t", index=False)
     return ann
 
 def _sanitize_xgb_feature_name(name):
@@ -211,7 +214,6 @@ def xgb_shap(mat, meta, gene_map=None):
         index=[safe_to_orig.get(c, c) for c in df_safe.index],
         dtype=float,
     ).sort_values(ascending=False)
-    df.to_csv(f'{OUT}/xgb_shap_prot.tsv', sep='\t')
     annotated = pd.DataFrame(
         {
             'protein_id': df.index.astype(str),
@@ -219,7 +221,14 @@ def xgb_shap(mat, meta, gene_map=None):
             'mean_abs_shap': df.values,
         }
     )
+    annotated["marker"] = annotated["gene_symbol"].astype(str).str.strip()
+    annotated.loc[annotated["marker"].isin(["", "nan", "None"]), "marker"] = annotated["protein_id"]
     annotated.to_csv(f'{OUT}/xgb_shap_prot_annotated.tsv', sep='\t', index=False)
+    # Display-oriented SHAP output: use gene symbol marker as primary index.
+    shap_display = annotated[["marker", "mean_abs_shap", "protein_id", "gene_symbol"]].copy()
+    shap_display = shap_display.drop_duplicates(subset=["marker"], keep="first").set_index("marker")
+    shap_display.to_csv(f"{OUT}/xgb_shap_prot.tsv", sep="\t")
+    shap_display.to_csv(f"{OUT}/xgb_shap_prot_gene_symbol.tsv", sep="\t")
     return df
 
 def main():

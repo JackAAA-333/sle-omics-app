@@ -355,16 +355,39 @@ def _plot_enhanced_volcano(all_df: pd.DataFrame):
     v = v[v["pvalue"].notna()].copy()
     if v.empty:
         return
-    x = pd.to_numeric(v.get("dml_effect_theta", np.nan), errors="coerce").fillna(0.0)
+    theta = pd.to_numeric(v["dml_effect_theta"], errors="coerce") if "dml_effect_theta" in v.columns else pd.Series(np.nan, index=v.index)
+    fold_change = pd.to_numeric(v["fold_change"], errors="coerce") if "fold_change" in v.columns else pd.Series(np.nan, index=v.index)
+    auc_shift = (pd.to_numeric(v["auc"], errors="coerce") - 0.5) if "auc" in v.columns else pd.Series(np.nan, index=v.index)
+    x = theta.copy()
+    # Fallback chain for cases where causal output is absent/insufficient:
+    # DML theta -> log2(fold_change) -> (AUC-0.5) -> centered SHAP proxy.
+    pos_fc = fold_change > 0
+    log2_fc = pd.Series(np.nan, index=v.index, dtype=float)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        log2_fc.loc[pos_fc] = np.log2(fold_change.loc[pos_fc].to_numpy(dtype=float))
+    x = x.where(x.notna(), log2_fc)
+    x = x.where(x.notna(), auc_shift)
+    if x.nunique(dropna=True) <= 1:
+        shap_raw = pd.to_numeric(v["shap_value"], errors="coerce") if "shap_value" in v.columns else pd.Series(np.nan, index=v.index)
+        shap_centered = _norm01(shap_raw).reindex(v.index).fillna(0.5) - 0.5
+        x = x.where(x.notna(), shap_centered)
+    x = x.fillna(0.0)
+    if x.nunique(dropna=True) <= 1:
+        # Final visual fallback to avoid degenerate vertical scatter.
+        x = pd.Series(np.linspace(-0.02, 0.02, len(v)), index=v.index, dtype=float)
     y = -np.log10(v["pvalue"].clip(lower=1e-300))
     hue = v.get("strict_pass", False)
+    if not isinstance(hue, pd.Series):
+        hue = pd.Series([False] * len(v), index=v.index)
+    hue = hue.fillna(False).astype(bool)
     plt.figure(figsize=(10, 6))
     sns.scatterplot(x=x, y=y, hue=hue, palette={True: "#d62728", False: "#1f77b4"}, s=45, edgecolor="white", linewidth=0.3)
     top = v.sort_values("total_score", ascending=False).head(12)
     for _, r in top.iterrows():
-        plt.text(float(r.get("dml_effect_theta", 0)), float(-np.log10(max(float(r.get("pvalue", 1)), 1e-300))), str(r["marker"]), fontsize=8)
+        idx = r.name
+        plt.text(float(x.loc[idx]), float(-np.log10(max(float(r.get("pvalue", 1)), 1e-300))), str(r["marker"]), fontsize=8)
     plt.axvline(0, color="grey", linestyle="--", linewidth=0.8)
-    plt.xlabel("DML 因果效应 (theta)")
+    plt.xlabel("效应轴（DML theta 优先，缺失时自动回退）")
     plt.ylabel("-log10(p-value)")
     plt.title("增强火山图：统计显著性 × 因果效应")
     plt.tight_layout()
@@ -375,11 +398,11 @@ def _plot_enhanced_volcano(all_df: pd.DataFrame):
 def _build_feature_matrix():
     meta_path = Path("outputs/sample_metadata.csv")
     if not meta_path.exists():
-        return None, None
+        return None
     meta = pd.read_csv(meta_path, index_col=0)
     meta = meta[meta["group"].isin(["SLE", "HC"])].copy()
     if meta.empty:
-        return None, None
+        return None
     y = (meta["group"] == "SLE").astype(int)
     met = _safe_read_matrix(Path("outputs/filtered_matrix.tsv"))
     prot = _safe_read_matrix(Path("outputs_prot/filtered_prot_matrix.tsv"))
