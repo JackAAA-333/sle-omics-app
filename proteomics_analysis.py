@@ -14,8 +14,8 @@ os.makedirs(OUT, exist_ok=True)
 def read_prot():
     xls = pd.read_excel('prot.xlsx', sheet_name=None)
     sheets = list(xls.keys())
-    # primary sheet name
-    main = '蛋白定量结果' if '蛋白定量结果' in sheets else sheets[1] if len(sheets)>1 else sheets[0]
+    # rule: if workbook has multiple sheets, only use the first sheet
+    main = sheets[0]
     df = pd.read_excel('prot.xlsx', sheet_name=main)
     return xls, main, df
 
@@ -121,10 +121,18 @@ def differential(mat, meta):
     for feat in mat.index:
         a = mat.loc[feat, sle_idx.index[sle_idx]].values
         b = mat.loc[feat, sle_idx.index[~sle_idx]].values
-        try:
-            stat,p = ttest_ind(a,b, equal_var=False, nan_policy='omit')
-        except Exception:
+        # avoid noisy warnings / unstable tests when effective sample size is too small
+        a_valid = a[~np.isnan(a)]
+        b_valid = b[~np.isnan(b)]
+        if len(a_valid) < 2 or len(b_valid) < 2:
             p = 1.0
+        else:
+            try:
+                _, p = ttest_ind(a_valid, b_valid, equal_var=False, nan_policy='omit')
+                if np.isnan(p):
+                    p = 1.0
+            except Exception:
+                p = 1.0
         pvals.append(p)
         try:
             y = (groups=='SLE').astype(int).values
@@ -137,17 +145,45 @@ def differential(mat, meta):
     res.to_csv(f'{OUT}/differential_prot.tsv', sep='\t')
     return res
 
+def _sanitize_xgb_feature_name(name):
+    s = str(name)
+    s = re.sub(r'[\[\]<>]', '_', s)
+    return s
+
+
 def xgb_shap(mat, meta, gene_map=None):
     gene_map = gene_map or {}
     samp_mask = meta['group'] != 'QC'
-    X = mat.T.loc[samp_mask.index[samp_mask]]
+    X = mat.T.loc[samp_mask.index[samp_mask]].copy()
     y = (meta.loc[samp_mask.index[samp_mask],'group']=='SLE').astype(int).values
+    # xgboost disallows feature names containing [, ] and <
+    orig_cols = [str(c) for c in X.columns]
+    safe_cols = []
+    used = set()
+    safe_to_orig = {}
+    for c in orig_cols:
+        base = _sanitize_xgb_feature_name(c)
+        cand = base
+        k = 2
+        while cand in used:
+            cand = f"{base}_{k}"
+            k += 1
+        used.add(cand)
+        safe_cols.append(cand)
+        safe_to_orig[cand] = c
+    X.columns = safe_cols
+
     clf = xgb.XGBClassifier(use_label_encoder=False, eval_metric='logloss', verbosity=0)
     clf.fit(X,y)
     expl = shap.TreeExplainer(clf)
     shap_vals = expl.shap_values(X)
     imp = np.abs(shap_vals).mean(axis=0)
-    df = pd.Series(imp, index=X.columns).sort_values(ascending=False)
+    df_safe = pd.Series(imp, index=X.columns).sort_values(ascending=False)
+    df = pd.Series(
+        data=df_safe.values,
+        index=[safe_to_orig.get(c, c) for c in df_safe.index],
+        dtype=float,
+    ).sort_values(ascending=False)
     df.to_csv(f'{OUT}/xgb_shap_prot.tsv', sep='\t')
     annotated = pd.DataFrame(
         {
