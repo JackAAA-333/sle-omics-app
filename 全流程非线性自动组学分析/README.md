@@ -38,7 +38,7 @@ streamlit run app.py
 - `start_app.sh`
 - `app_launcher.applescript`
 
-在「全流程非线性自动组学分析」目录执行（会生成标准 AppleScript 小程序，并写入带绝对路径的 `launcher.sh`，Finder 可正常双击）：
+仓库根目录已附带 **`全流程非线性自动组学分析.app`**（与 `全流程非线性自动组学分析/` 文件夹同级），启动逻辑按包路径解析 `start_app.sh`，换机器克隆后无需改绝对路径。若系统提示无法验证开发者，可右键 **打开**；仍异常时在子目录执行 `./build_mac_app.sh` 重新签名并刷新图标。
 
 ```bash
 ./build_mac_app.sh
@@ -50,4 +50,4 @@ streamlit run app.py
 COPY_TO_DESKTOP=1 ./build_mac_app.sh
 ```
 
-之后双击 `全流程非线性自动组学分析.app` 即可自动启动并打开页面。请勿使用「仅含几行 zsh、主可执行文件为脚本」的简易 `.app` 包放在桌面，此类包在 Finder 下常无法双击启动。
+之后双击 `全流程非线性自动组学分析.app` 即可自动启动并打开页面。

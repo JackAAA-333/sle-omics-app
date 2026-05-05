@@ -12,8 +12,9 @@ outputs_prot/
 outputs_strict/
 outputs_web/
 
-# Local app artifacts
+# Local app artifacts（默认忽略 .app；仓库内预置的启动包除外）
 *.app/
+!全流程非线性自动组学分析.app/
 *.log
 
 # Uploaded/runtime data
