@@ -1,5 +1,6 @@
 import json
 import argparse
+import re
 import warnings
 from pathlib import Path
 
@@ -433,15 +434,25 @@ def _plot_enhanced_volcano(all_df: pd.DataFrame):
 
 def _build_feature_matrix():
     meta_path = Path("outputs/sample_metadata.csv")
-    if not meta_path.exists():
-        return None
-    meta = pd.read_csv(meta_path, index_col=0)
-    meta = meta[meta["group"].isin(["SLE", "HC"])].copy()
+    met = _safe_read_matrix(Path("outputs/filtered_matrix.tsv"))
+    prot = _safe_read_matrix(Path("outputs_prot/filtered_prot_matrix.tsv"))
+    if meta_path.exists():
+        meta = pd.read_csv(meta_path, index_col=0)
+        meta = meta[meta["group"].isin(["SLE", "HC"])].copy()
+    else:
+        # Fallback for protein-only runs: infer SLE/HC labels from sample names.
+        inferred = []
+        prot_cols = [] if prot is None else [str(c) for c in prot.columns]
+        for c in prot_cols:
+            uc = c.upper()
+            if "SLE" in uc:
+                inferred.append((c, "SLE"))
+            elif re.search(r"\bHC\b|HC-|HC_", uc):
+                inferred.append((c, "HC"))
+        meta = pd.DataFrame(inferred, columns=["sample", "group"]).set_index("sample") if inferred else pd.DataFrame()
     if meta.empty:
         return None
     y = (meta["group"] == "SLE").astype(int)
-    met = _safe_read_matrix(Path("outputs/filtered_matrix.tsv"))
-    prot = _safe_read_matrix(Path("outputs_prot/filtered_prot_matrix.tsv"))
     return (met, prot, y)
 
 
@@ -495,6 +506,180 @@ def _evaluate_panel_metrics(panel_df: pd.DataFrame, prefix: str):
     return {"panel": prefix, "n_features": int(X.shape[1]), "auc_cv": auc_val, "f1_cv": f1_val}
 
 
+def _build_matrix_for_markers(marker_df: pd.DataFrame):
+    data = _build_feature_matrix()
+    if data is None or marker_df.empty:
+        return None, None
+    met, prot, y = data
+    samples = y.index.tolist()
+    X_parts = []
+    labels = []
+    for _, r in marker_df.iterrows():
+        feat = str(r.get("feature_id", ""))
+        mod = str(r.get("modality", ""))
+        mat = prot if mod == "protein" else met
+        if mat is None or feat not in mat.index:
+            continue
+        row = pd.to_numeric(mat.loc[feat], errors="coerce")
+        row = row.reindex(samples).fillna(float(row.median() if row.notna().any() else 0.0))
+        label = str(r.get("marker", feat))
+        X_parts.append(row.rename(label))
+        labels.append(label)
+    if not X_parts:
+        return None, None
+    X = pd.concat(X_parts, axis=1).astype(float)
+    # Deduplicate marker names for safe column indexing.
+    X = X.loc[:, ~X.columns.duplicated(keep="first")]
+    return X, y
+
+
+def _plot_single_marker_heatmap(all_df: pd.DataFrame, top_n: int = 15):
+    if all_df.empty:
+        return
+    top_df = all_df.sort_values("total_score", ascending=False).head(top_n)
+    X, y = _build_matrix_for_markers(top_df)
+    if X is None or X.shape[1] < 2:
+        return
+    M = X.T
+    Mz = M.sub(M.mean(axis=1), axis=0).div(M.std(axis=1).replace(0, 1), axis=0)
+    col_colors = y.map({1: "#d62728", 0: "#1f77b4"})
+    cg = sns.clustermap(
+        Mz,
+        cmap="vlag",
+        col_colors=col_colors,
+        col_cluster=True,
+        row_cluster=True,
+        figsize=(10, 8),
+    )
+    cg.fig.suptitle("单分子候选热图 / Single-Candidate Heatmap", y=1.02)
+    cg.fig.savefig(FIG_DIR / "heatmap_single_candidates.png", dpi=220, bbox_inches="tight")
+    plt.close(cg.fig)
+
+
+def _evaluate_single_marker_roc(all_df: pd.DataFrame, top_n: int = 8):
+    if all_df.empty:
+        plt.figure(figsize=(7, 6))
+        plt.plot([0, 1], [0, 1], "k--", linewidth=1.0, label="No valid single-marker curve")
+        plt.xlabel("假阳性率 / False Positive Rate")
+        plt.ylabel("真阳性率 / True Positive Rate")
+        plt.title("单分子ROC（Top候选） / Single-Candidate ROC (Top Markers)")
+        plt.legend(loc="lower right", fontsize=8)
+        plt.tight_layout()
+        plt.savefig(FIG_DIR / "roc_single_candidates_top5.png", dpi=220)
+        plt.close()
+        return pd.DataFrame()
+    top_df = all_df.sort_values("total_score", ascending=False).head(top_n)
+    X, y = _build_matrix_for_markers(top_df)
+    if X is None or X.empty:
+        plt.figure(figsize=(7, 6))
+        plt.plot([0, 1], [0, 1], "k--", linewidth=1.0, label="No valid single-marker curve")
+        plt.xlabel("假阳性率 / False Positive Rate")
+        plt.ylabel("真阳性率 / True Positive Rate")
+        plt.title("单分子ROC（Top候选） / Single-Candidate ROC (Top Markers)")
+        plt.legend(loc="lower right", fontsize=8)
+        plt.tight_layout()
+        plt.savefig(FIG_DIR / "roc_single_candidates_top5.png", dpi=220)
+        plt.close()
+        return pd.DataFrame()
+    rows = []
+    curves = []
+    y_true = y.values.astype(int)
+    for col in X.columns:
+        scores = pd.to_numeric(X[col], errors="coerce").fillna(float(X[col].median())).values.astype(float)
+        if np.nanstd(scores) < 1e-12:
+            continue
+        try:
+            auc_raw = float(roc_auc_score(y_true, scores))
+        except Exception:
+            continue
+        oriented = scores if auc_raw >= 0.5 else -scores
+        auc_use = auc_raw if auc_raw >= 0.5 else 1.0 - auc_raw
+        fpr, tpr, _ = roc_curve(y_true, oriented)
+        y_pred = (oriented >= np.nanmedian(oriented)).astype(int)
+        f1_val = float(f1_score(y_true, y_pred))
+        rows.append({"marker": col, "auc_single": auc_use, "f1_single": f1_val})
+        curves.append((col, fpr, tpr, auc_use))
+    if not rows:
+        plt.figure(figsize=(7, 6))
+        plt.plot([0, 1], [0, 1], "k--", linewidth=1.0, label="No valid single-marker curve")
+        plt.xlabel("假阳性率 / False Positive Rate")
+        plt.ylabel("真阳性率 / True Positive Rate")
+        plt.title("单分子ROC（Top候选） / Single-Candidate ROC (Top Markers)")
+        plt.legend(loc="lower right", fontsize=8)
+        plt.tight_layout()
+        plt.savefig(FIG_DIR / "roc_single_candidates_top5.png", dpi=220)
+        plt.close()
+        return pd.DataFrame()
+    out = pd.DataFrame(rows).sort_values("auc_single", ascending=False).reset_index(drop=True)
+    plt.figure(figsize=(7, 6))
+    for marker, fpr, tpr, auc_use in curves[:5]:
+        plt.plot(fpr, tpr, linewidth=1.8, label=f"{marker} (AUC={auc_use:.3f})")
+    plt.plot([0, 1], [0, 1], "k--", linewidth=0.8)
+    plt.xlabel("假阳性率 / False Positive Rate")
+    plt.ylabel("真阳性率 / True Positive Rate")
+    plt.title("单分子ROC（Top候选） / Single-Candidate ROC (Top Markers)")
+    plt.legend(loc="lower right", fontsize=8)
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "roc_single_candidates_top5.png", dpi=220)
+    plt.close()
+    return out
+
+
+def _evaluate_topk_combined_roc(all_df: pd.DataFrame, top_k: int = 5):
+    def _save_placeholder(msg: str):
+        plt.figure(figsize=(6, 6))
+        plt.plot([0, 1], [0, 1], "k--", linewidth=1.0, label=msg)
+        plt.xlabel("假阳性率 / False Positive Rate")
+        plt.ylabel("真阳性率 / True Positive Rate")
+        plt.title("前五候选联合ROC / Top5 Candidate Combined ROC")
+        plt.legend(loc="lower right", fontsize=8)
+        plt.tight_layout()
+        plt.savefig(FIG_DIR / "roc_top5_combined_candidates.png", dpi=220)
+        plt.close()
+
+    if all_df.empty:
+        _save_placeholder("No valid candidates")
+        return None
+    top_df = all_df.sort_values("total_score", ascending=False).head(top_k)
+    X, y = _build_matrix_for_markers(top_df)
+    if X is None or X.shape[1] < 2:
+        _save_placeholder("Insufficient features for combined ROC")
+        return None
+    y_true = y.values.astype(int)
+    min_class = int(min((y_true == 1).sum(), (y_true == 0).sum()))
+    if min_class < 2:
+        _save_placeholder("Insufficient class samples")
+        return None
+    n_splits = max(2, min(5, min_class, len(y_true)))
+    try:
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+        clf = RandomForestClassifier(
+            n_estimators=int(PANEL_EVAL_CFG.get("rf_n_estimators", 500)),
+            random_state=int(PANEL_EVAL_CFG.get("random_state", 42)),
+            class_weight="balanced",
+        )
+        y_prob = cross_val_predict(clf, X, y_true, cv=cv, method="predict_proba")[:, 1]
+        y_pred = (y_prob >= 0.5).astype(int)
+        fpr, tpr, _ = roc_curve(y_true, y_prob)
+        auc_val = float(auc(fpr, tpr))
+        f1_val = float(f1_score(y_true, y_pred))
+
+        plt.figure(figsize=(6, 6))
+        plt.plot(fpr, tpr, color="#d62728", linewidth=2.0, label=f"AUC / 曲线下面积 = {auc_val:.3f}")
+        plt.plot([0, 1], [0, 1], "k--", linewidth=0.8)
+        plt.xlabel("假阳性率 / False Positive Rate")
+        plt.ylabel("真阳性率 / True Positive Rate")
+        plt.title("前五候选联合ROC / Top5 Candidate Combined ROC")
+        plt.legend(loc="lower right")
+        plt.tight_layout()
+        plt.savefig(FIG_DIR / "roc_top5_combined_candidates.png", dpi=220)
+        plt.close()
+        return {"panel": "top5_combined", "n_features": int(X.shape[1]), "auc_cv": auc_val, "f1_cv": f1_val}
+    except Exception:
+        _save_placeholder("Combined ROC model failed")
+        return None
+
+
 def _plot_panel_heatmap(panel_df: pd.DataFrame, prefix: str):
     data = _build_feature_matrix()
     if data is None or panel_df.empty:
@@ -531,7 +716,13 @@ def _plot_panel_heatmap(panel_df: pd.DataFrame, prefix: str):
     plt.close(cg.fig)
 
 
-def _write_markdown(panel_df: pd.DataFrame, strict_df: pd.DataFrame, all_df: pd.DataFrame, metrics_df: pd.DataFrame):
+def _write_markdown(
+    panel_df: pd.DataFrame,
+    strict_df: pd.DataFrame,
+    all_df: pd.DataFrame,
+    metrics_df: pd.DataFrame,
+    single_metrics_df: pd.DataFrame,
+):
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     md = OUT_DIR / "联合试剂盒候选开发报告.md"
     with md.open("w", encoding="utf-8") as f:
@@ -576,10 +767,19 @@ def _write_markdown(panel_df: pd.DataFrame, strict_df: pd.DataFrame, all_df: pd.
 
         f.write("\n## 必要性能与可视化结果\n")
         f.write("![增强火山图](figs/enhanced_volcano_causal.png)\n\n")
+        f.write("![单分子候选热图](figs/heatmap_single_candidates.png)\n\n")
+        f.write("![单分子ROC](figs/roc_single_candidates_top5.png)\n\n")
+        f.write("![前五候选联合ROC](figs/roc_top5_combined_candidates.png)\n\n")
         f.write("![推荐面板热图](figs/heatmap_recommended_panel.png)\n\n")
         f.write("![严格面板热图](figs/heatmap_strict_panel.png)\n\n")
         f.write("![推荐面板ROC](figs/roc_recommended_panel.png)\n\n")
         f.write("![严格面板ROC](figs/roc_strict_panel.png)\n\n")
+        if single_metrics_df is not None and not single_metrics_df.empty:
+            f.write("\n### 单分子候选性能（Top）\n")
+            f.write("| 分子 | 单分子AUC | 单分子F1 |\n")
+            f.write("|---|---:|---:|\n")
+            for _, r in single_metrics_df.head(15).iterrows():
+                f.write(f"| {r['marker']} | {r['auc_single']:.3f} | {r['f1_single']:.3f} |\n")
         if metrics_df is not None and not metrics_df.empty:
             f.write("| 面板 | 特征数 | CV AUC | CV F1 |\n")
             f.write("|---|---:|---:|---:|\n")
@@ -594,8 +794,12 @@ def _write_markdown(panel_df: pd.DataFrame, strict_df: pd.DataFrame, all_df: pd.
         f.write("- `outputs_candidate/figs/panel_total_score.png`：综合评分图。\n")
         f.write("- `outputs_candidate/figs/panel_evidence_breakdown.png`：证据分项构成图。\n")
         f.write("- `outputs_candidate/figs/enhanced_volcano_causal.png`：增强火山图。\n")
+        f.write("- `outputs_candidate/figs/heatmap_single_candidates.png`：单分子候选热图。\n")
+        f.write("- `outputs_candidate/figs/roc_single_candidates_top5.png`：单分子 ROC（Top 候选）。\n")
+        f.write("- `outputs_candidate/figs/roc_top5_combined_candidates.png`：前五候选联合 ROC。\n")
         f.write("- `outputs_candidate/figs/heatmap_recommended_panel.png` / `heatmap_strict_panel.png`：面板热图。\n")
         f.write("- `outputs_candidate/figs/roc_recommended_panel.png` / `roc_strict_panel.png`：ROC 曲线。\n")
+        f.write("- `outputs_candidate/single_marker_metrics.tsv`：单分子 AUC/F1 指标汇总。\n")
         f.write("- `outputs_candidate/panel_model_metrics.tsv`：AUC/F1 指标汇总。\n")
         f.write("\n## 说明\n")
         f.write("- 本报告用于候选分子优先级排序，不替代外部队列和临床验证。\n")
@@ -632,13 +836,24 @@ def main(min_abs_dml: float | None = None, min_e_value: float | None = None, str
         )
 
     _plot_enhanced_volcano(all_df if not all_df.empty else pd.DataFrame())
+    _plot_single_marker_heatmap(all_df if not all_df.empty else pd.DataFrame(), top_n=15)
+    single_metrics_df = _evaluate_single_marker_roc(all_df if not all_df.empty else pd.DataFrame(), top_n=12)
+    if single_metrics_df is not None and not single_metrics_df.empty:
+        single_metrics_df.to_csv(OUT_DIR / "single_marker_metrics.tsv", sep="\t", index=False)
+    else:
+        pd.DataFrame(columns=["marker", "auc_single", "f1_single"]).to_csv(
+            OUT_DIR / "single_marker_metrics.tsv", sep="\t", index=False
+        )
     metrics_rows = []
     m1 = _evaluate_panel_metrics(panel_df, "recommended")
     m2 = _evaluate_panel_metrics(strict_df, "strict")
+    m3 = _evaluate_topk_combined_roc(all_df if not all_df.empty else pd.DataFrame(), top_k=5)
     if m1:
         metrics_rows.append(m1)
     if m2:
         metrics_rows.append(m2)
+    if m3:
+        metrics_rows.append(m3)
     metrics_df = pd.DataFrame(metrics_rows)
     if not metrics_df.empty:
         metrics_df.to_csv(OUT_DIR / "panel_model_metrics.tsv", sep="\t", index=False)
@@ -647,7 +862,7 @@ def main(min_abs_dml: float | None = None, min_e_value: float | None = None, str
             OUT_DIR / "panel_model_metrics.tsv", sep="\t", index=False
         )
 
-    _write_markdown(panel_df, strict_df, all_df, metrics_df)
+    _write_markdown(panel_df, strict_df, all_df, metrics_df, single_metrics_df)
 
     summary = {
         "strict_profile": strict_profile,

@@ -22,7 +22,13 @@
       "Patient_03",
       "Patient_04",
       "Patient_05",
-      "Patient_06"
+      "Patient_06",
+      "SLE-001",
+      "SLE-002",
+      "SLE-003",
+      "SLE-004",
+      "SLE-005",
+      "SLE-006"
     ],
     "HC": [
       "Healthy_001",
@@ -36,7 +42,13 @@
       "Control_03",
       "Control_04",
       "Control_05",
-      "Control_06"
+      "Control_06",
+      "HC-001",
+      "HC-002",
+      "HC-003",
+      "HC-004",
+      "HC-005",
+      "HC-006"
     ],
     "QC": [
       "QC_pool_1",
@@ -44,7 +56,10 @@
       "QC_pool_3",
       "Pool_01",
       "Pool_02",
-      "Pool_03"
+      "Pool_03",
+      "QC-1",
+      "QC-2",
+      "QC-3"
     ]
   },
   "metabolite": {

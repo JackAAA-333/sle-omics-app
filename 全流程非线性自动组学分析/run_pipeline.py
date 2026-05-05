@@ -416,6 +416,7 @@ def run_pipeline(
         proc = subprocess.Popen(
             cmd,
             cwd=repo_root,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,

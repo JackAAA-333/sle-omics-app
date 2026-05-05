@@ -1,0 +1,21 @@
+modality	marker	feature_id	gene_symbol	query	recent_3y_count	pmids
+protein	G019	P00019	G019	"(""G019"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G026	P00026	G026	"(""G026"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G046	P00046	G046	"(""G046"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G012	P00012	G012	"(""G012"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G015	P00015	G015	"(""G015"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G002	P00002	G002	"(""G002"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G003	P00003	G003	"(""G003"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G004	P00004	G004	"(""G004"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G005	P00005	G005	"(""G005"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G006	P00006	G006	"(""G006"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G007	P00007	G007	"(""G007"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G008	P00008	G008	"(""G008"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G009	P00009	G009	"(""G009"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G010	P00010	G010	"(""G010"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G011	P00011	G011	"(""G011"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G013	P00013	G013	"(""G013"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G014	P00014	G014	"(""G014"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G016	P00016	G016	"(""G016"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G032	P00032	G032	"(""G032"") AND (""systemic lupus erythematosus"" OR SLE)"	0	
+protein	G018	P00018	G018	"(""G018"") AND (""systemic lupus erythematosus"" OR SLE)"	0	

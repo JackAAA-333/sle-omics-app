@@ -325,12 +325,21 @@ if run_button:
                     artifacts_dir / "outputs" / "volcano.png",
                     artifacts_dir / "outputs" / "heatmap_top30.png",
                     artifacts_dir / "outputs" / "roc_top5.png",
+                    artifacts_dir / "outputs_prot" / "heatmap_prot_top30.png",
+                    artifacts_dir / "outputs_prot" / "roc_prot_top5.png",
+                    artifacts_dir / "outputs_prot" / "roc_prot_combined_top5.png",
                     artifacts_dir / "outputs_candidate" / "figs" / "enhanced_volcano_causal.png",
                     artifacts_dir / "outputs_candidate" / "figs" / "heatmap_recommended_panel.png",
                     artifacts_dir / "outputs_candidate" / "figs" / "heatmap_strict_panel.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "heatmap_single_candidates.png",
                     artifacts_dir / "outputs_candidate" / "figs" / "roc_recommended_panel.png",
                     artifacts_dir / "outputs_candidate" / "figs" / "roc_strict_panel.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "roc_single_candidates_top5.png",
+                    artifacts_dir / "outputs_candidate" / "figs" / "roc_top5_combined_candidates.png",
                 ]
+                single_roc_dir = artifacts_dir / "outputs_prot" / "roc_single_markers"
+                if single_roc_dir.exists():
+                    image_candidates.extend(sorted(single_roc_dir.glob("*.png")))
                 shown = 0
                 for img in image_candidates:
                     if img.exists():

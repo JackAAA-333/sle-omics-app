@@ -1,1 +1,4 @@
-do shell script "zsh " & quoted form of "/Users/jacka/Desktop/SLE分析/全流程非线性自动组学分析/start_app.sh" & " >/dev/null 2>&1 &"
+-- 请使用 ./build_mac_app.sh；本文件保留占位。
+on run
+	error "请在本目录终端执行：./build_mac_app.sh"
+end run

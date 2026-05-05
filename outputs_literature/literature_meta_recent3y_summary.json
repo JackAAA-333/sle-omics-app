@@ -1,0 +1,57 @@
+{
+  "n_markers": 20,
+  "n_markers_with_recent_evidence": 0,
+  "total_recent_3y_hits": 0,
+  "top_markers": [
+    {
+      "modality": "protein",
+      "marker": "G019",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G026",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G046",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G012",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G015",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G002",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G003",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G004",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G005",
+      "recent_3y_count": 0
+    },
+    {
+      "modality": "protein",
+      "marker": "G006",
+      "recent_3y_count": 0
+    }
+  ]
+}

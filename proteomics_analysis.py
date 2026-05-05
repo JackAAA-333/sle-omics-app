@@ -5,9 +5,13 @@ import numpy as np
 import pandas as pd
 import requests
 from scipy.stats import ttest_ind
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, roc_curve, auc
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
 import xgboost as xgb
 import shap
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 OUT = 'outputs_prot'
 os.makedirs(OUT, exist_ok=True)
@@ -340,6 +344,113 @@ def xgb_shap(mat, meta, gene_map=None):
     shap_display.to_csv(f"{OUT}/xgb_shap_prot_gene_symbol.tsv", sep="\t")
     return df
 
+
+def _safe_name(text):
+    s = re.sub(r"[^A-Za-z0-9_\-]+", "_", str(text)).strip("_")
+    return s[:80] if s else "marker"
+
+
+def plot_protein_visuals(logm, meta, diff_res, gene_map=None):
+    gene_map = gene_map or {}
+    groups = meta['group'].astype(str).str.upper()
+    sle_samples = groups[groups == 'SLE'].index.tolist()
+    hc_samples = groups[groups == 'HC'].index.tolist()
+    if len(sle_samples) < 2 or len(hc_samples) < 2:
+        return
+
+    common_samples = sle_samples + hc_samples
+    top_feats = (
+        diff_res.sort_values('pvalue', ascending=True)
+        .head(30)
+        .index.intersection(logm.index)
+        .tolist()
+    )
+    if len(top_feats) >= 2:
+        try:
+            sns.clustermap(logm.loc[top_feats, common_samples], cmap='vlag', standard_scale=0)
+            plt.savefig(f'{OUT}/heatmap_prot_top30.png', dpi=200)
+            plt.close()
+        except Exception:
+            pass
+
+    # Single-marker ROC curves for top significant proteins (individual plots + one overlay).
+    roc_feats = (
+        diff_res.sort_values('pvalue', ascending=True)
+        .head(5)
+        .index.intersection(logm.index)
+        .tolist()
+    )
+    if len(roc_feats) == 0:
+        return
+    y_true = (groups.loc[common_samples] == 'SLE').astype(int).values
+    roc_dir = os.path.join(OUT, "roc_single_markers")
+    os.makedirs(roc_dir, exist_ok=True)
+    plt.figure(figsize=(6, 5))
+    plotted = 0
+    single_rows = []
+    for feat in roc_feats:
+        vals = pd.to_numeric(logm.loc[feat, common_samples], errors='coerce').fillna(0.0).values
+        if np.nanstd(vals) < 1e-12:
+            continue
+        try:
+            auc_raw = roc_auc_score(y_true, vals)
+            score = vals if auc_raw >= 0.5 else -vals
+            auc_use = auc_raw if auc_raw >= 0.5 else (1.0 - auc_raw)
+            fpr, tpr, _ = roc_curve(y_true, score)
+            marker = str(gene_map.get(str(feat), "")).strip() or str(feat)
+            plt.plot(fpr, tpr, linewidth=1.5, label=f'{marker} (AUC={auc_use:.3f})')
+            single_rows.append({"feature_id": str(feat), "marker": marker, "auc_single": auc_use})
+            # Individual ROC figure for each top marker
+            plt.figure(figsize=(5.5, 5))
+            plt.plot(fpr, tpr, color="#2a7fff", linewidth=2.0, label=f"AUC={auc_use:.3f}")
+            plt.plot([0, 1], [0, 1], "--", color="gray", linewidth=0.8)
+            plt.xlabel("False Positive Rate (FPR)")
+            plt.ylabel("True Positive Rate (TPR)")
+            plt.title(f"Single Marker ROC - {marker}")
+            plt.legend(loc="lower right")
+            plt.tight_layout()
+            plt.savefig(os.path.join(roc_dir, f"roc_single_{_safe_name(marker)}.png"), dpi=200)
+            plt.close()
+            plotted += 1
+        except Exception:
+            continue
+    if plotted > 0:
+        plt.plot([0, 1], [0, 1], '--', color='gray', linewidth=0.8)
+        plt.xlabel('False Positive Rate (FPR)')
+        plt.ylabel('True Positive Rate (TPR)')
+        plt.title('Protein Single-Marker ROC (Top5 Overlay)')
+        plt.legend(fontsize=8, loc='lower right')
+        plt.tight_layout()
+        plt.savefig(f'{OUT}/roc_prot_top5.png', dpi=200)
+    plt.close()
+    pd.DataFrame(single_rows).to_csv(f"{OUT}/single_marker_metrics.tsv", sep="\t", index=False)
+
+    # Combined ROC using top5 markers jointly (cross-validated probability).
+    valid_feats = [f for f in roc_feats if f in logm.index]
+    if len(valid_feats) >= 2:
+        X = logm.loc[valid_feats, common_samples].T.apply(pd.to_numeric, errors='coerce')
+        X = X.fillna(X.median()).fillna(0.0)
+        min_class = int(min((y_true == 1).sum(), (y_true == 0).sum()))
+        n_splits = max(2, min(5, min_class, len(y_true)))
+        try:
+            cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+            clf = LogisticRegression(solver='liblinear', max_iter=2000, class_weight='balanced')
+            y_prob = cross_val_predict(clf, X, y_true, cv=cv, method='predict_proba')[:, 1]
+            fpr_c, tpr_c, _ = roc_curve(y_true, y_prob)
+            auc_c = float(auc(fpr_c, tpr_c))
+            plt.figure(figsize=(5.8, 5.2))
+            plt.plot(fpr_c, tpr_c, color="#d62728", linewidth=2.2, label=f"AUC={auc_c:.3f}")
+            plt.plot([0, 1], [0, 1], "--", color="gray", linewidth=0.8)
+            plt.xlabel("False Positive Rate (FPR)")
+            plt.ylabel("True Positive Rate (TPR)")
+            plt.title("Protein Top5 Combined ROC")
+            plt.legend(loc="lower right")
+            plt.tight_layout()
+            plt.savefig(f"{OUT}/roc_prot_combined_top5.png", dpi=200)
+            plt.close()
+        except Exception:
+            pass
+
 def main():
     xls, main, df = read_prot()
     gene_map = build_gene_symbol_map(df)
@@ -352,6 +463,7 @@ def main():
     logm.to_csv(f'{OUT}/filtered_prot_matrix.tsv', sep='\t')
     res = differential(logm, meta)
     export_differential_annotated(res, gene_map)
+    plot_protein_visuals(logm, meta, res, gene_map=gene_map)
     imp = xgb_shap(logm, meta, gene_map=gene_map)
     summary = {'n_features':int(logm.shape[0]), 'n_samples':int(logm.shape[1])}
     with open(f'{OUT}/summary.json','w') as f:

@@ -1,0 +1,35 @@
+{
+  "strict_profile": "标准",
+  "strict_threshold_abs_dml": 0.08,
+  "strict_threshold_e_value": 2.0,
+  "n_all_candidates": 60,
+  "n_panel_candidates": 10,
+  "n_strict_candidates": 8,
+  "panel_top5": [
+    {
+      "marker": "G019",
+      "modality": "protein",
+      "total_score": 0.9851851851851854
+    },
+    {
+      "marker": "G026",
+      "modality": "protein",
+      "total_score": 0.8363187523180178
+    },
+    {
+      "marker": "G030",
+      "modality": "protein",
+      "total_score": 0.5088040260998453
+    },
+    {
+      "marker": "G046",
+      "modality": "protein",
+      "total_score": 0.4977655115757977
+    },
+    {
+      "marker": "G044",
+      "modality": "protein",
+      "total_score": 0.4658360706781717
+    }
+  ]
+}
